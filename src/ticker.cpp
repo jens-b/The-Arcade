@@ -64,17 +64,90 @@ static bool extractFloat(const char* src, const char* key, float* out) {
 
 // ── fetch task ────────────────────────────────────────────────────────────────
 
+// Returns true if sym looks like a WKN (6 digits) or ISIN (2 letters + 10 alphanumeric).
+static bool isWknOrIsin(const char* sym) {
+  size_t len = strlen(sym);
+  if (len == 6) {
+    for (size_t i = 0; i < 6; i++) if (!isdigit((unsigned char)sym[i])) return false;
+    return true;
+  }
+  if (len == 12) {
+    if (!isupper((unsigned char)sym[0]) || !isupper((unsigned char)sym[1])) return false;
+    for (size_t i = 2; i < 12; i++) if (!isalnum((unsigned char)sym[i])) return false;
+    return true;
+  }
+  return false;
+}
+
+// Queries Yahoo Finance search API to resolve a WKN/ISIN to a ticker symbol.
+// Uses the provided buf (PSRAM) as scratch space. Writes result to out on success.
+static bool resolveToYahooSymbol(const char* query, char* buf, size_t bufLen,
+                                  char* out, size_t outLen) {
+  WiFiClientSecure secure;
+  secure.setInsecure();
+  HTTPClient http;
+  char url[192];
+  snprintf(url, sizeof(url),
+           "https://query1.finance.yahoo.com/v1/finance/search?q=%s&quotesCount=1&newsCount=0",
+           query);
+  http.begin(secure, url);
+  http.setTimeout(8000);
+  http.setUserAgent("ZeDMD/1.8");
+  bool ok = false;
+  if (http.GET() == HTTP_CODE_OK) {
+    WiFiClient* stream = http.getStreamPtr();
+    int len = 0;
+    uint32_t lastData = millis();
+    while (len < (int)bufLen - 1 && millis() - lastData < 2000) {
+      int avail = stream->available();
+      if (avail > 0) {
+        int chunk = stream->readBytes(buf + len, min(avail, (int)bufLen - 1 - len));
+        if (chunk > 0) { len += chunk; lastData = millis(); }
+      } else if (!stream->connected()) break;
+      else vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    buf[len] = '\0';
+    // Extract first "symbol":"..." from the quotes array
+    const char* p = strstr(buf, "\"symbol\":\"");
+    if (p) {
+      p += 10;
+      const char* e = strchr(p, '"');
+      if (e && (size_t)(e - p) < outLen) {
+        strncpy(out, p, e - p);
+        out[e - p] = '\0';
+        ok = (out[0] != '\0');
+      }
+    }
+  }
+  http.end();
+  return ok;
+}
+
 // Fetches price, changePct, and history for one symbol via v8 chart.
 // WiFiClientSecure and HTTPClient are local — TCP connection closes automatically
 // on return via destructor, freeing lwIP pbufs from internal SRAM immediately.
+// WKN (6 digits) and ISIN (e.g. DE0008404005) are resolved to Yahoo ticker first.
 static bool fetchSymbol(TickerEntry* entry, char* body) {
+  // Resolve WKN/ISIN to Yahoo ticker symbol if needed
+  const char* querySymbol = entry->symbol;
+  char resolved[16] = "";
+  if (isWknOrIsin(entry->symbol)) {
+    if (resolveToYahooSymbol(entry->symbol, body, TICKER_BUF, resolved, sizeof(resolved))) {
+      querySymbol = resolved;
+      logMsg("Ticker: resolved %s -> %s", entry->symbol, resolved);
+    } else {
+      logMsg("Ticker: could not resolve %s, skipping", entry->symbol);
+      return false;
+    }
+  }
+
   WiFiClientSecure secure;
   secure.setInsecure();
   HTTPClient http;
   char url[256];
   snprintf(url, sizeof(url),
            "https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1h&range=%s",
-           entry->symbol, tickerRange);
+           querySymbol, tickerRange);
 
   http.begin(secure, url);
   http.setTimeout(10000);

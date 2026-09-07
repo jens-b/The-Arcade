@@ -471,6 +471,13 @@ uint8_t screensaverMode = 0;     // 0=Screensaver only, 1=Clock only, 2=Clock+Sc
 // Weather (mode 3) — globals now in weather.cpp
 
 #ifdef ZEDMD_WIFI
+#define TICKER_ROTATION_EVERY 3   // show ticker slot every N GIFs in rotation modes (0/2/4)
+static bool     tickerSlotActive   = false;
+static uint32_t tickerSlotEnd      = 0;
+static uint16_t tickerGifCountdown = 0;
+#endif
+
+#ifdef ZEDMD_WIFI
 String   mqttServer        = "";
 uint16_t mqttPort          = 1883;
 String   mqttTopic         = "weather/loop";
@@ -567,6 +574,9 @@ AnimatedGIF gif;
 File gifFile;
 
 // Forward Declarations
+#ifdef ZEDMD_WIFI
+static bool tickerCarouselTick();
+#endif
 void radioFallbackFailed(const char* stationName);
 void CleanupTmpFiles();
 void LoadIcons();
@@ -3011,8 +3021,10 @@ void StartServer() {
       showingClock = false;           // reset mode 2/6 state
       screensaverTextScrollX    = TOTAL_WIDTH;  // reset mode 5/6/7 scroll
       screensaverTextNeedsClear = true;
-      tickerPhaseStart   = 0;         // reset mode 8 carousel
+      tickerPhaseStart   = 0;
       tickerCurrentIndex = 0;
+      tickerSlotActive   = false;
+      tickerGifCountdown = 0;
       request->send(200, "text/plain", "OK");
       SaveScreensaverMode();
     } else {
@@ -5960,6 +5972,72 @@ void setup() {
   }
 }
 
+#ifdef ZEDMD_WIFI
+// Renders one frame of the stock/crypto carousel.
+// Advances symbol every 3 s. Returns true while data is available.
+static bool tickerCarouselTick() {
+  if (tickerCount == 0) return false;
+  uint32_t now = millis();
+  bool redraw;
+  if (tickerPhaseStart == 1) {
+    redraw = true;
+  } else {
+    redraw = ((now - tickerPhaseStart) >= 3000UL);
+    if (redraw) tickerCurrentIndex = (tickerCurrentIndex + 1) % tickerCount;
+  }
+  if (redraw) {
+    tickerPhaseStart = now;
+    display->ClearScreen();
+    const TickerEntry& e = tickerData[tickerCurrentIndex];
+    if (e.valid) {
+      uint8_t cr = 140, cg = 140, cb = 140;
+      if      (e.changePct >  0.05f) { cr = 0;   cg = 200; cb = 60;  }
+      else if (e.changePct < -0.05f) { cr = 220; cg = 40;  cb = 40;  }
+      const char* displayName = (e.shortName[0] != '\0') ? e.shortName : e.symbol;
+      char changeLine[12];
+      snprintf(changeLine, sizeof(changeLine), "%+.1f%%", e.changePct);
+      int changeW = (int)(strlen(changeLine) * 4);
+      display->DisplayText(displayName, 0, 1, 220, 180, 60);
+      display->DisplayText(changeLine, (uint16_t)(TOTAL_WIDTH - changeW), 1, cr, cg, cb);
+      char priceLine[24];
+      const char* cur = e.currency[0] ? e.currency : "";
+      const char* sep = e.currency[0] ? " " : "";
+      if      (e.price >= 10000.0f) snprintf(priceLine, sizeof(priceLine), "%.0f%s%s", e.price, sep, cur);
+      else if (e.price >= 1000.0f)  snprintf(priceLine, sizeof(priceLine), "%.1f%s%s", e.price, sep, cur);
+      else if (e.price >= 100.0f)   snprintf(priceLine, sizeof(priceLine), "%.2f%s%s", e.price, sep, cur);
+      else                           snprintf(priceLine, sizeof(priceLine), "%.3f%s%s", e.price, sep, cur);
+      display->DisplayTextScaled(priceLine, 0, 8, 255, 255, 255, 2);
+      if (e.historyLen >= 2) {
+        float minP = e.history[0], maxP = e.history[0];
+        for (int i = 1; i < e.historyLen; i++) {
+          if (e.history[i] < minP) minP = e.history[i];
+          if (e.history[i] > maxP) maxP = e.history[i];
+        }
+        float range = (maxP - minP);
+        if (range < 0.0001f) range = 0.0001f;
+        static const int CHART_TOP    = 21;
+        static const int CHART_BOTTOM = 31;
+        static const int CHART_H      = CHART_BOTTOM - CHART_TOP + 1;
+        for (int x = 0; x < TOTAL_WIDTH; x++) {
+          int hi = (x * e.historyLen) / TOTAL_WIDTH;
+          if (hi >= e.historyLen) hi = e.historyLen - 1;
+          float norm = (e.history[hi] - minP) / range;
+          int   barH = max(1, (int)(norm * CHART_H));
+          for (int py = CHART_BOTTOM; py > CHART_BOTTOM - barH; py--) {
+            int bright = 80 + (int)(120.0f * (py - CHART_TOP) / CHART_H);
+            display->DrawPixel((uint16_t)x, (uint16_t)py,
+                               (uint8_t)(cr * bright / 200),
+                               (uint8_t)(cg * bright / 200),
+                               (uint8_t)(cb * bright / 200));
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+#endif  // ZEDMD_WIFI
+
 void loop() {
   esp_task_wdt_reset();
 
@@ -6518,94 +6596,16 @@ void loop() {
         return;
       }
 
-      // Mode 8: stock/crypto carousel — 3 s/symbol, sparkline chart, scaled price
-      // While no data yet: fall through to GIF code so display stays live.
-      // tickerEnabled==false: skip entirely and fall through to GIF screensaver.
+      // Mode 8: stock/crypto carousel — 3 s/symbol, sparkline chart, scaled price.
+      // Falls through to GIF code while waiting for first fetch or when disabled.
       if (screensaverMode == 8 && tickerEnabled) {
         uint32_t now = millis();
-
-        // tickerPhaseStart state machine:
-        //   0 = just entered mode — trigger fetch, fall through to GIF while waiting
-        //   1 = sentinel: fetch triggered, still showing GIF
-        //   >1 = displaying ticker; advance symbol when 3s elapsed
-
-        if (tickerPhaseStart == 0) {
-          tickerPhaseStart = 1;  // sentinel: fetch triggered, GIF still running
-          tickerTrigger();
-        }
-
-        // periodic refresh after first successful fetch
+        if (tickerPhaseStart == 0) { tickerPhaseStart = 1; tickerTrigger(); }
         if (lastTickerFetch > 0 && (now - lastTickerFetch) >= tickerIntervalSec * 1000UL)
           tickerTrigger();
-
-        if (tickerCount > 0) {
-          bool redraw;
-          if (tickerPhaseStart == 1) {
-            // first data arrived — take over display, draw index 0 immediately
-            redraw = true;
-          } else {
-            redraw = ((now - tickerPhaseStart) >= 3000UL);
-            if (redraw) tickerCurrentIndex = (tickerCurrentIndex + 1) % tickerCount;
-          }
-          if (redraw) {
-            tickerPhaseStart = now;
-            display->ClearScreen();
-            const TickerEntry& e = tickerData[tickerCurrentIndex];
-            if (e.valid) {
-              // change% color
-              uint8_t cr = 140, cg = 140, cb = 140;  // gray = flat
-              if      (e.changePct >  0.05f) { cr = 0;   cg = 200; cb = 60;  }
-              else if (e.changePct < -0.05f) { cr = 220; cg = 40;  cb = 40;  }
-
-              // row 1 (y=1): name left + Δ% right-aligned, tiny4x6
-              const char* displayName = (e.shortName[0] != '\0') ? e.shortName : e.symbol;
-              char changeLine[12];
-              snprintf(changeLine, sizeof(changeLine), "%+.1f%%", e.changePct);
-              int changeW = (int)(strlen(changeLine) * 4);
-              display->DisplayText(displayName, 0, 1, 220, 180, 60);
-              display->DisplayText(changeLine, (uint16_t)(TOTAL_WIDTH - changeW), 1, cr, cg, cb);
-
-              // row 2 (y=8): price + currency suffix, 2× scaled (8px/char × 12px tall)
-              char priceLine[24];
-              const char* cur = e.currency[0] ? e.currency : "";
-              const char* sep = e.currency[0] ? " " : "";
-              if      (e.price >= 10000.0f) snprintf(priceLine, sizeof(priceLine), "%.0f%s%s", e.price, sep, cur);
-              else if (e.price >= 1000.0f)  snprintf(priceLine, sizeof(priceLine), "%.1f%s%s", e.price, sep, cur);
-              else if (e.price >= 100.0f)   snprintf(priceLine, sizeof(priceLine), "%.2f%s%s", e.price, sep, cur);
-              else                           snprintf(priceLine, sizeof(priceLine), "%.3f%s%s", e.price, sep, cur);
-              display->DisplayTextScaled(priceLine, 0, 8, 255, 255, 255, 2);
-
-              // sparkline: y=21..31 (11px chart area), full width
-              if (e.historyLen >= 2) {
-                float minP = e.history[0], maxP = e.history[0];
-                for (int i = 1; i < e.historyLen; i++) {
-                  if (e.history[i] < minP) minP = e.history[i];
-                  if (e.history[i] > maxP) maxP = e.history[i];
-                }
-                float range = (maxP - minP);
-                if (range < 0.0001f) range = 0.0001f;
-                static const int CHART_TOP    = 21;
-                static const int CHART_BOTTOM = 31;
-                static const int CHART_H      = CHART_BOTTOM - CHART_TOP + 1;  // 11px
-                for (int x = 0; x < TOTAL_WIDTH; x++) {
-                  int hi = (x * e.historyLen) / TOTAL_WIDTH;
-                  if (hi >= e.historyLen) hi = e.historyLen - 1;
-                  float norm   = (e.history[hi] - minP) / range;
-                  int   barH   = max(1, (int)(norm * CHART_H));
-                  for (int py = CHART_BOTTOM; py > CHART_BOTTOM - barH; py--) {
-                    // brighter at the bottom of each bar
-                    int bright = 80 + (int)(120.0f * (py - CHART_TOP) / CHART_H);
-                    display->DrawPixel((uint16_t)x, (uint16_t)py,
-                                       (uint8_t)(cr * bright / 200),
-                                       (uint8_t)(cg * bright / 200),
-                                       (uint8_t)(cb * bright / 200));
-                  }
-                }
-              }
-            }
-          }
+        if (tickerCarouselTick()) {
           vTaskDelay(pdMS_TO_TICKS(100));
-          return;  // only return when ticker is actively displaying
+          return;
         }
         // tickerCount == 0: fall through to GIF code — keep display live while fetching
       }
@@ -6641,6 +6641,29 @@ void loop() {
 #endif
       }
 
+#ifdef ZEDMD_WIFI
+      // Ticker rotation slot: show ticker periodically in modes 0/2/4 between GIFs.
+      if (tickerEnabled && tickerSlotActive) {
+        uint32_t now = millis();
+        if (tickerCount == 0 || now >= tickerSlotEnd) {
+          tickerSlotActive = false;
+          tickerPhaseStart = 0;
+        } else {
+          if (tickerCarouselTick()) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            return;
+          }
+        }
+      }
+      // Keep ticker data fresh even when not in mode 8.
+      if (tickerEnabled && !tickerFetching && screensaverMode != 8) {
+        uint32_t now = millis();
+        if (lastTickerFetch == 0 ? (now > 20000UL) :
+            ((now - lastTickerFetch) >= tickerIntervalSec * 1000UL))
+          tickerTrigger();
+      }
+#endif
+
       // Mode 0, 2 or 4 (screensaver part): play GIF/RAW
       if (screensaverCount > 0) {
         currentlyPlayingFile = "";  // normal screensaver takes over
@@ -6666,6 +6689,18 @@ void loop() {
           if (!screensaverPaused) {
             screensaverRAWShowStart = 0;
             screensaverIndex = nextScreensaverIndex();
+#ifdef ZEDMD_WIFI
+            if (tickerEnabled && tickerCount > 0 && screensaverMode != 8) {
+              if (++tickerGifCountdown >= TICKER_ROTATION_EVERY) {
+                tickerGifCountdown  = 0;
+                tickerSlotActive    = true;
+                tickerSlotEnd       = millis() + (uint32_t)screensaverDuration * 1000UL;
+                tickerPhaseStart    = 1;
+                tickerCurrentIndex  = 0;
+                return;
+              }
+            }
+#endif
             String nextFile = String(screensaverFiles[screensaverIndex]);
             if (!nextFile.endsWith(".gif") && !nextFile.endsWith(".GIF")) {
               ScreenSaver();
@@ -6677,6 +6712,18 @@ void loop() {
               (millis() - screensaverRAWShowStart) >= (uint32_t)screensaverDuration * 1000) {
             screensaverRAWShowStart = 0;
             screensaverIndex = nextScreensaverIndex();
+#ifdef ZEDMD_WIFI
+            if (tickerEnabled && tickerCount > 0 && screensaverMode != 8) {
+              if (++tickerGifCountdown >= TICKER_ROTATION_EVERY) {
+                tickerGifCountdown  = 0;
+                tickerSlotActive    = true;
+                tickerSlotEnd       = millis() + (uint32_t)screensaverDuration * 1000UL;
+                tickerPhaseStart    = 1;
+                tickerCurrentIndex  = 0;
+                return;
+              }
+            }
+#endif
             ScreenSaver();
             if (screensaverMode == 4) {
               weatherPhaseStart = millis();
