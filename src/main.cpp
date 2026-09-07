@@ -378,7 +378,7 @@ static void diagBoot() {
       rtcLogHead  = 0;
       logMsg("Crash-Dump: %s (uptime war %us)", fname, (unsigned)lastUp);
     } else {
-      logMsg("diagBoot: FEHLER - %s konnte nicht geoeffnet werden", fname);
+      logMsg("diagBoot: ERROR - could not open %s", fname);
     }
   }
 
@@ -3033,7 +3033,7 @@ void StartServer() {
       String("{\"paused\":") + (screensaverPaused ? "true" : "false") + "}");
   });
 
-  // POST /save_screensaver_brightness — speichert direkt
+  // POST /save_screensaver_brightness — persists immediately
   server->on("/save_screensaver_brightness", HTTP_POST, [](AsyncWebServerRequest *request) {
     if (request->hasParam("screensaverBrightness", true)) {
       screensaverBrightness = (uint8_t)constrain(request->getParam("screensaverBrightness", true)->value().toInt(), 0, 15);
@@ -3421,7 +3421,7 @@ void StartServer() {
 
   server->on("/gif_audio_upload", HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if (!sdCardAvailable) { request->send(503, "text/plain", "SD-Karte nicht verfügbar"); return; }
+      if (!sdCardAvailable) { request->send(503, "text/plain", "SD card not available"); return; }
       TriggerGifAudioRescan();
       request->send(200, "text/plain", "OK");
     },
@@ -3621,7 +3621,7 @@ void StartServer() {
         uploadFile.close();
         LittleFS.remove("/" + filename);
         LittleFS.rename("/" + filename + ".tmp", "/" + filename);
-        logMsg("Asset hochgeladen: /%s", filename.c_str());
+        logMsg("Asset uploaded: /%s", filename.c_str());
       }
     }
   );
@@ -3675,7 +3675,7 @@ void StartServer() {
         String dst = "/icons/" + filename;
         LittleFS.remove(dst);
         LittleFS.rename("/icons/" + filename + ".tmp", dst);
-        logMsg("Icon hochgeladen: %s", dst.c_str());
+        logMsg("Icon uploaded: %s", dst.c_str());
         iconsReloadNeeded = true;
       }
     }
@@ -3703,7 +3703,7 @@ void StartServer() {
         String dst = "/icons_weather/" + filename;
         LittleFS.remove(dst);
         LittleFS.rename("/icons_weather/" + filename + ".tmp", dst);
-        logMsg("Weather-Icon hochgeladen: %s", dst.c_str());
+        logMsg("Weather icon uploaded: %s", dst.c_str());
         iconsReloadNeeded = true;
       }
     }
@@ -3731,7 +3731,7 @@ void StartServer() {
         String dst = "/icons_small/" + filename;
         LittleFS.remove(dst);
         LittleFS.rename("/icons_small/" + filename + ".tmp", dst);
-        logMsg("Small-Icon hochgeladen: %s", dst.c_str());
+        logMsg("Small icon uploaded: %s", dst.c_str());
         iconsReloadNeeded = true;
       }
     }
@@ -3759,7 +3759,7 @@ void StartServer() {
         String dst = "/icons_radio/" + filename;
         LittleFS.remove(dst);
         LittleFS.rename("/icons_radio/" + filename + ".tmp", dst);
-        logMsg("Radio-Logo hochgeladen: %s", dst.c_str());
+        logMsg("Radio logo uploaded: %s", dst.c_str());
         iconsReloadNeeded = true;
       }
     }
@@ -4768,10 +4768,10 @@ void CleanupTmpFiles() {
 void LoadIcons() {
   loadIconSet("/icons", iconTable, iconCount, MAX_ICONS, ICON_BYTES);
   esp_task_wdt_reset();
-  logMsg("Icons: %d gross geladen", iconCount);
+  logMsg("Icons: %d large loaded", iconCount);
   loadIconSet("/icons_weather", iconTableWeather, iconCountWeather, MAX_WEATHER_ICONS, ICON_BYTES_W);
   esp_task_wdt_reset();
-  logMsg("Icons: %d Wetter geladen", iconCountWeather);
+  logMsg("Icons: %d weather loaded", iconCountWeather);
 }
 
 // SPI speed steps: 40→25→20→8 MHz, reduced on each failure. Requires spiSD already initialized.
@@ -4982,18 +4982,18 @@ uint16_t TryLoadFolderCache(const String& sdPath) {
   }
   f.close();
   uint16_t loaded = screensaverCount - countBefore;
-  logMsg("Cache[%s]: %d Dateien geladen", sdPath.c_str(), loaded);
+  logMsg("Cache[%s]: %d files loaded", sdPath.c_str(), loaded);
   return loaded;
 }
 
-// Einzelnen Ordner in Cache schreiben
+// Write a single folder's file list to the LittleFS cache.
 void SaveFolderCache(const String& sdPath, uint16_t fromIndex, uint16_t count) {
   String cacheFile = folderCacheKey(sdPath);
   File f = LittleFS.open(cacheFile, "w");
-  if (!f) { logMsg("Cache: Konnte %s nicht schreiben", cacheFile.c_str()); return; }
+  if (!f) { logMsg("Cache: failed to write %s", cacheFile.c_str()); return; }
   for (uint16_t i = fromIndex; i < fromIndex + count; i++) f.println(screensaverFiles[i]);
   f.close();
-  logMsg("Cache[%s]: %d Dateien gespeichert", sdPath.c_str(), count);
+  logMsg("Cache[%s]: %d files saved", sdPath.c_str(), count);
 }
 
 // Delete all folder caches
@@ -5009,7 +5009,7 @@ void InvalidateAllFolderCaches() {
       f.close();
       String removePath = name.startsWith("/") ? name : ("/" + name);
       LittleFS.remove(removePath);
-      logMsg("Cache: %s geloescht", removePath.c_str());
+      logMsg("Cache: removed %s", removePath.c_str());
     } else {
       f.close();
     }
@@ -5022,7 +5022,7 @@ void InvalidateFolderCache(const String& path) {
   String cacheFile = folderCacheKey(path);
   if (LittleFS.exists(cacheFile)) {
     LittleFS.remove(cacheFile);
-    logMsg("Cache: %s invalidiert", cacheFile.c_str());
+    logMsg("Cache: invalidated %s", cacheFile.c_str());
   }
 }
 
@@ -5041,13 +5041,13 @@ static void psramCacheSet(char** ptr, const String& json) {
   if (!newBuf) return;
   memcpy(newBuf, json.c_str(), len + 1);
   char* old = *ptr;
-  *ptr = newBuf;   // atomarer 32-Bit-Pointer-Swap auf Xtensa
+  *ptr = newBuf;   // atomic 32-bit pointer swap on Xtensa
   if (old) heap_caps_free(old);
 }
 
 void SaveGifAudioCache() {
   File f = LittleFS.open(GIF_AUDIO_CACHE_FILE, "w");
-  if (!f) { logMsg("GifAudioCache: Schreiben fehlgeschlagen"); return; }
+  if (!f) { logMsg("GifAudioCache: write failed"); return; }
   // parse PSRAM buffer directly — no String copy into internal heap
   const char* p = cachedGifAudioFiles;
   if (!p || *p != '[') { f.close(); return; }
@@ -5071,7 +5071,7 @@ void SaveGifAudioCache() {
     if (*p == ',') p++;
   }
   f.close();
-  logMsg("GifAudioCache: gespeichert (%s)", GIF_AUDIO_CACHE_FILE);
+  logMsg("GifAudioCache: saved (%s)", GIF_AUDIO_CACHE_FILE);
 }
 
 bool TryLoadGifAudioCache() {
@@ -5110,13 +5110,13 @@ bool TryLoadGifAudioCache() {
   char* old = cachedGifAudioFiles;
   cachedGifAudioFiles = buf;
   if (old) heap_caps_free(old);
-  logMsg("Cache[%s]: %d Dateien geladen", GIF_AUDIO_DIR, count);
+  logMsg("Cache[%s]: %d files loaded", GIF_AUDIO_DIR, count);
   return true;
 }
 
 void InvalidateGifAudioCache() {
   LittleFS.remove(GIF_AUDIO_CACHE_FILE);
-  logMsg("GifAudioCache: invalidiert");
+  logMsg("GifAudioCache: invalidated");
 }
 
 // Clears screensaverFiles under mutex — no window where web-server callbacks see a partial buffer.
@@ -5169,9 +5169,9 @@ void LoadScreensaverFiles() {
       }
       heap_caps_free(favBuf);
     }
-    logMsg("LoadScreensaver: %d Favoriten geladen", screensaverCount);
+    logMsg("LoadScreensaver: %d favorites loaded", screensaverCount);
     if (screensaverCount > 0) goto done;
-    logMsg("LoadScreensaver: Keine Favoriten verfügbar, Fallback auf LittleFS");
+    logMsg("LoadScreensaver: no favorites available, falling back to LittleFS");
   }
 
   // All selected paths (comma-separated); "FS:" = LittleFS /screensaver/
@@ -5211,12 +5211,12 @@ void LoadScreensaverFiles() {
             f = fsDir.openNextFile();
           }
           fsDir.close();
-          logMsg("LoadScreensaver: %d Dateien aus LittleFS geladen", screensaverCount - countBefore);
+          logMsg("LoadScreensaver: %d files loaded from LittleFS", screensaverCount - countBefore);
         }
         continue;
       }
 
-      if (!sdCardAvailable) { logMsg("LoadScreensaver: SD nicht verfügbar, überspringe %s", entry.c_str()); continue; }
+      if (!sdCardAvailable) { logMsg("LoadScreensaver: SD not available, skipping %s", entry.c_str()); continue; }
       String sdPath = entry;
       if (!sdPath.startsWith("/")) sdPath = "/" + sdPath;
 
@@ -5224,7 +5224,7 @@ void LoadScreensaverFiles() {
       uint16_t cached = TryLoadFolderCache(sdPath);
       if (cached > 0) continue;
 
-      // Cache-Miss — SD scannen
+      // Cache miss — scan SD directory
       logMsg("LoadScreensaver: SD Pfad=%s (kein Cache, scanne...) exists=%d",
              sdPath.c_str(), (int)SD.exists(sdPath.c_str()));
       File dir = SD.open(sdPath.c_str());
@@ -5267,15 +5267,15 @@ void LoadScreensaverFiles() {
         }
         dir.close();
         uint16_t newFiles = screensaverCount - countBefore;
-        logMsg("LoadScreensaver: %d Dateien aus %s geladen", newFiles, sdPath.c_str());
+        logMsg("LoadScreensaver: %d files loaded from %s", newFiles, sdPath.c_str());
         // FIX 11: save folder cache for next boot
         if (newFiles > 0) SaveFolderCache(sdPath, countBefore, newFiles);
       } else {
-        logMsg("LoadScreensaver: Ordner nicht gefunden: %s — heap=%u errno=%d",
+        logMsg("LoadScreensaver: folder not found: %s — heap=%u errno=%d",
                sdPath.c_str(), (unsigned)esp_get_free_internal_heap_size(), errno);
       }
     }
-    logMsg("LoadScreensaver: %d Dateien gesamt geladen", screensaverCount);
+    logMsg("LoadScreensaver: %d files loaded total", screensaverCount);
   }
 
   // Fallback 1 → LittleFS /screensaver
@@ -5306,7 +5306,7 @@ void LoadScreensaverFiles() {
   }
   // Fallback 2: logo.raw/logoHD.raw is loaded directly in ScreenSaver()
 done:
-  logMsg("LoadScreensaver: %d Dateien, Shuffle=%s", screensaverCount, screensaverShuffle ? "ja" : "nein");
+  logMsg("LoadScreensaver: %d files, shuffle=%s", screensaverCount, screensaverShuffle ? "yes" : "no");
   if (screensaverShuffle && screensaverCount > 1) shuffleScreensaverFiles();
   else if (screensaverCount > 1) sortScreensaverFiles();
   if (screensaverFilesMutex) {
@@ -5351,7 +5351,7 @@ void checkSDCardIdentity() {
 
   if (strcmp(newUUID, storedUUID) != 0) {
     if (storedUUID[0] != '\0') {
-      logMsg("SD: Karte gewechselt — alle Ordner-Caches invalidiert");
+      logMsg("SD: card swapped — all folder caches invalidated");
       InvalidateAllFolderCaches();
     }
     File lfw = LittleFS.open("/sd_card_id.txt", "w");
@@ -5631,7 +5631,7 @@ void setup() {
     }
   }
 
-  // SD card warning NACH renderBuffer-Allokation — Render() braucht valide Buffer!
+  // SD card warning AFTER renderBuffer allocation — Render() needs valid buffers
   if (sdCardWarningPending) {
     display->DisplayText("SD card not found!", 0, 0, 255, 80, 0);
     bool hasLittleFSFiles = LittleFS.exists("/screensaver");
@@ -6081,7 +6081,7 @@ void loop() {
       }
       dir.close();
       if (cancelled) {
-        logMsg("GifAudio: Scan abgebrochen nach %d Dateien", gifAudioCount);
+        logMsg("GifAudio: scan aborted after %d files", gifAudioCount);
         if (jsonBuf) heap_caps_free(jsonBuf);
       } else if (jsonBuf) {
         jsonBuf[jsonPos++] = ']';
@@ -6091,7 +6091,7 @@ void loop() {
         char* old = cachedGifAudioFiles;
         cachedGifAudioFiles = jsonBuf;
         if (old) heap_caps_free(old);
-        logMsg("GifAudio: %d Dateien gefunden, Cache gespeichert", gifAudioCount);
+        logMsg("GifAudio: %d files found, cache saved", gifAudioCount);
         SaveGifAudioCache();
       }
     }
@@ -6345,7 +6345,7 @@ void loop() {
       }
 #endif  // FONT_TEST_ENABLED
 
-      // Modus 1: Clock + Weather (permanent, no forecast alternation)
+      // Mode 1: Clock + Weather (permanent, no forecast alternation)
       if (screensaverMode == 1) {
         uint32_t now = millis();
         uint32_t weatherInterval = forecastAvailable ? (15UL * 60UL * 1000UL) : (2UL * 60UL * 1000UL);

@@ -780,15 +780,15 @@ void radioRegisterRoutes(AsyncWebServer* server) {
     String path = request->getParam("path", true)->value();
     if (path.startsWith("SD:")) path = path.substring(3);
     if (!path.startsWith("/") || (!path.endsWith(".mp3") && !path.endsWith(".MP3"))) {
-      request->send(400, "text/plain", "Ungültiger Pfad (erwartet /GifAudio/file.mp3)");
+      request->send(400, "text/plain", "Invalid path (expected /GifAudio/file.mp3)");
       return;
     }
     if (!SD.exists(path.c_str())) {
-      request->send(404, "text/plain", "Datei nicht gefunden");
+      request->send(404, "text/plain", "File not found");
       return;
     }
     if (radioIsPlaying) {
-      request->send(409, "text/plain", "Radio läuft — GIF-Audio hat keinen Vorrang");
+      request->send(409, "text/plain", "Radio playing — GIF audio takes no priority");
       return;
     }
     radioPlayLocalFile(path.c_str());
