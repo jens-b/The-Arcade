@@ -9,6 +9,7 @@
 
 struct TickerEntry {
   char  symbol[16];
+  char  resolved[16];                 // cached Yahoo symbol after WKN/ISIN resolution, empty if not yet resolved
   char  shortName[32];                // human-readable name, e.g. "Commerzbank AG"
   char  currency[8];                  // "USD", "EUR", "GBP", ...
   float price;

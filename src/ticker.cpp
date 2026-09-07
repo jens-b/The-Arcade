@@ -127,18 +127,21 @@ static bool resolveToYahooSymbol(const char* query, char* buf, size_t bufLen,
 // WiFiClientSecure and HTTPClient are local — TCP connection closes automatically
 // on return via destructor, freeing lwIP pbufs from internal SRAM immediately.
 // WKN (6 digits) and ISIN (e.g. DE0008404005) are resolved to Yahoo ticker first.
+// The resolved symbol is cached in entry->resolved to avoid a second HTTPS call on every fetch.
 static bool fetchSymbol(TickerEntry* entry, char* body) {
-  // Resolve WKN/ISIN to Yahoo ticker symbol if needed
   const char* querySymbol = entry->symbol;
-  char resolved[16] = "";
   if (isWknOrIsin(entry->symbol)) {
-    if (resolveToYahooSymbol(entry->symbol, body, TICKER_BUF, resolved, sizeof(resolved))) {
-      querySymbol = resolved;
-      logMsg("Ticker: resolved %s -> %s", entry->symbol, resolved);
-    } else {
-      logMsg("Ticker: could not resolve %s, skipping", entry->symbol);
-      return false;
+    if (entry->resolved[0] == '\0') {
+      // first time: resolve and cache
+      if (resolveToYahooSymbol(entry->symbol, body, TICKER_BUF,
+                               entry->resolved, sizeof(entry->resolved))) {
+        logMsg("Ticker: resolved %s -> %s", entry->symbol, entry->resolved);
+      } else {
+        logMsg("Ticker: could not resolve %s, skipping", entry->symbol);
+        return false;
+      }
     }
+    querySymbol = entry->resolved;
   }
 
   WiFiClientSecure secure;
@@ -333,6 +336,8 @@ void tickerRegisterRoutes(AsyncWebServer* server) {
     File f = LittleFS.open("/ticker_symbols.val", "w");
     if (f) { f.print(syms); f.close(); }
 
+    // clear resolve cache so changed WKN/ISIN symbols are re-resolved
+    for (int i = 0; i < MAX_TICKER_SYMBOLS; i++) tickerData[i].resolved[0] = '\0';
     lastTickerFetch  = 0;
     tickerPhaseStart = 0;
     tickerTrigger();
