@@ -22,6 +22,8 @@
 #ifdef ZEDMD_WIFI
 #include "weather.h"
 #include "clock.h"
+#include "rss.h"
+#include "ticker.h"
 #endif
 #include "sd_interface.h"
 #ifdef SD_MMC_BUILD
@@ -1321,36 +1323,11 @@ bool PlayGIF(const String &path, uint32_t endTime = 0, bool clearFirst = true, b
   }
 #endif
 
-  // PSRAM pre-load: for SD GIFs, load entire file into PSRAM before playback.
-  // Frees the SPI bus during playback and eliminates SD seek latency between frames.
-  // Freed automatically on all exit paths via destructor — including early exits via flags.
-  struct PSRAMGuard {
-    uint8_t* ptr = nullptr;
-    ~PSRAMGuard() { if (ptr) { heap_caps_free(ptr); ptr = nullptr; } }
-  } gifBuf;
-  bool openedFromPsram = false;
-
   gif.begin(LITTLE_ENDIAN_PIXELS);
 #ifdef BOARD_HAS_PSRAM
   gif.setDrawType(GIF_DRAW_COOKED);
-  if (path.startsWith("SD:")) {
-    File f = SD.open(path.c_str() + 3, "r");
-    if (f) {
-      size_t sz = f.size();
-      if (sz > 0 && ESP.getFreePsram() > sz + 524288UL) {
-        gifBuf.ptr = (uint8_t*)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (gifBuf.ptr) {
-          esp_task_wdt_reset();
-          size_t bytesRead = f.read(gifBuf.ptr, sz);
-          f.close();
-          if (bytesRead == sz) openedFromPsram = gif.open(gifBuf.ptr, (int)sz, GIFDraw);
-          if (!openedFromPsram) { heap_caps_free(gifBuf.ptr); gifBuf.ptr = nullptr; }
-        } else { f.close(); }
-      } else { f.close(); }
-    }
-  }
 #endif
-  if (!openedFromPsram && !gif.open(path.c_str(), GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw)) {
+  if (!gif.open(path.c_str(), GIFOpenFile, GIFCloseFile, GIFReadFile, GIFSeekFile, GIFDraw)) {
 #ifdef WEBRADIO_ENABLED
     if (gifAudioActive) { radioStopLocalFile(); gifAudioActive = false; }
 #endif
@@ -2183,7 +2160,7 @@ static void NewTcpClient(void *arg, AsyncClient *client) {
 }
 
 void sendLittleFSHtml(AsyncWebServerRequest *request, const char* path) {
-  if (ESP.getMaxAllocHeap() < 6144) {
+  if (ESP.getFreeHeap() < 4096) {
     request->send(503, "text/html",
       "<!DOCTYPE html><html><head><meta charset='utf-8'>"
       "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -3026,14 +3003,16 @@ void StartServer() {
   // POST /save_screensaver_mode
   server->on("/save_screensaver_mode", HTTP_POST, [](AsyncWebServerRequest *request) {
     if (request->hasParam("mode", true)) {
-      screensaverMode = (uint8_t)constrain(request->getParam("mode", true)->value().toInt(), 0, 6);
+      screensaverMode = (uint8_t)constrain(request->getParam("mode", true)->value().toInt(), 0, 8);
       forceClockRedraw = true;       // immediate redraw on mode change
       weatherPhaseStart = 0;          // reset phase timer
       weatherPage = 0;
       clockPhaseStart = 0;            // reset mode 2/6 timer
       showingClock = false;           // reset mode 2/6 state
-      screensaverTextScrollX    = TOTAL_WIDTH;  // reset mode 5/6 scroll
+      screensaverTextScrollX    = TOTAL_WIDTH;  // reset mode 5/6/7 scroll
       screensaverTextNeedsClear = true;
+      tickerPhaseStart   = 0;         // reset mode 8 carousel
+      tickerCurrentIndex = 0;
       request->send(200, "text/plain", "OK");
       SaveScreensaverMode();
     } else {
@@ -3900,6 +3879,10 @@ void StartServer() {
 
 #ifdef WEBRADIO_ENABLED
   radioRegisterRoutes(server);
+#endif
+#ifdef ZEDMD_WIFI
+  rssRegisterRoutes(server);
+  tickerRegisterRoutes(server);
 #endif
 
   server->begin();
@@ -4801,6 +4784,7 @@ bool sdSpiMountWithFallback() {
   static const uint8_t  nSpeeds  = 3;
 #endif
   for (uint8_t i = 0; i < nSpeeds; i++) {
+    esp_task_wdt_reset();  // SD.begin() may block ~2s per attempt with no card
     uint32_t spd = speeds[i < nSpeeds ? i : nSpeeds - 1];
     if (SD.begin(SD_CS, spiSD, spd)) {
       logMsg("SD: Mount OK bei %lu MHz (Versuch %d)", spd / 1000000, i + 1);
@@ -5559,6 +5543,8 @@ void setup() {
     LoadDisplayTimer();
 #ifdef ZEDMD_WIFI
     weatherInit();
+    rssInit();
+    tickerInit();
 #endif
     LoadFavorites();
     LoadIgnore();
@@ -6507,6 +6493,123 @@ void loop() {
         vTaskDelay(pdMS_TO_TICKS(20));
         return;
       }
+
+#ifdef ZEDMD_WIFI
+      // Mode 7: RSS news ticker — scrolling text, fetched every 15 min
+      if (screensaverMode == 7) {
+        uint32_t now = millis();
+        if (lastRssFetch == 0 ? (now > 15000UL) : ((now - lastRssFetch) >= 15UL * 60UL * 1000UL))
+          rssTrigger();
+        if (screensaverTextNeedsClear) {
+          display->ClearScreen();
+          for (int i = 0; i < NUM_RENDER_BUFFERS; i++) memset(renderBuffer[i], 0, TOTAL_BYTES);
+          screensaverTextNeedsClear = false;
+        }
+        const char* hl = rssGetHeadlines();
+        if (hl && hl[0]) {
+          display->RenderTextGFXToBuffer(renderBuffer[currentRenderBuffer],
+                                         hl, screensaverTextScrollX,
+                                         dateR, dateG, dateB);
+          Render();
+          int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
+          if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        return;
+      }
+
+      // Mode 8: stock/crypto carousel — 3 s/symbol, sparkline chart, scaled price
+      // While no data yet: fall through to GIF code so display stays live.
+      // tickerEnabled==false: skip entirely and fall through to GIF screensaver.
+      if (screensaverMode == 8 && tickerEnabled) {
+        uint32_t now = millis();
+
+        // tickerPhaseStart state machine:
+        //   0 = just entered mode — trigger fetch, fall through to GIF while waiting
+        //   1 = sentinel: fetch triggered, still showing GIF
+        //   >1 = displaying ticker; advance symbol when 3s elapsed
+
+        if (tickerPhaseStart == 0) {
+          tickerPhaseStart = 1;  // sentinel: fetch triggered, GIF still running
+          tickerTrigger();
+        }
+
+        // periodic refresh after first successful fetch
+        if (lastTickerFetch > 0 && (now - lastTickerFetch) >= tickerIntervalSec * 1000UL)
+          tickerTrigger();
+
+        if (tickerCount > 0) {
+          bool redraw;
+          if (tickerPhaseStart == 1) {
+            // first data arrived — take over display, draw index 0 immediately
+            redraw = true;
+          } else {
+            redraw = ((now - tickerPhaseStart) >= 3000UL);
+            if (redraw) tickerCurrentIndex = (tickerCurrentIndex + 1) % tickerCount;
+          }
+          if (redraw) {
+            tickerPhaseStart = now;
+            display->ClearScreen();
+            const TickerEntry& e = tickerData[tickerCurrentIndex];
+            if (e.valid) {
+              // change% color
+              uint8_t cr = 140, cg = 140, cb = 140;  // gray = flat
+              if      (e.changePct >  0.05f) { cr = 0;   cg = 200; cb = 60;  }
+              else if (e.changePct < -0.05f) { cr = 220; cg = 40;  cb = 40;  }
+
+              // row 1 (y=1): name left + Δ% right-aligned, tiny4x6
+              const char* displayName = (e.shortName[0] != '\0') ? e.shortName : e.symbol;
+              char changeLine[12];
+              snprintf(changeLine, sizeof(changeLine), "%+.1f%%", e.changePct);
+              int changeW = (int)(strlen(changeLine) * 4);
+              display->DisplayText(displayName, 0, 1, 220, 180, 60);
+              display->DisplayText(changeLine, (uint16_t)(TOTAL_WIDTH - changeW), 1, cr, cg, cb);
+
+              // row 2 (y=8): price + currency suffix, 2× scaled (8px/char × 12px tall)
+              char priceLine[24];
+              const char* cur = e.currency[0] ? e.currency : "";
+              const char* sep = e.currency[0] ? " " : "";
+              if      (e.price >= 10000.0f) snprintf(priceLine, sizeof(priceLine), "%.0f%s%s", e.price, sep, cur);
+              else if (e.price >= 1000.0f)  snprintf(priceLine, sizeof(priceLine), "%.1f%s%s", e.price, sep, cur);
+              else if (e.price >= 100.0f)   snprintf(priceLine, sizeof(priceLine), "%.2f%s%s", e.price, sep, cur);
+              else                           snprintf(priceLine, sizeof(priceLine), "%.3f%s%s", e.price, sep, cur);
+              display->DisplayTextScaled(priceLine, 0, 8, 255, 255, 255, 2);
+
+              // sparkline: y=21..31 (11px chart area), full width
+              if (e.historyLen >= 2) {
+                float minP = e.history[0], maxP = e.history[0];
+                for (int i = 1; i < e.historyLen; i++) {
+                  if (e.history[i] < minP) minP = e.history[i];
+                  if (e.history[i] > maxP) maxP = e.history[i];
+                }
+                float range = (maxP - minP);
+                if (range < 0.0001f) range = 0.0001f;
+                static const int CHART_TOP    = 21;
+                static const int CHART_BOTTOM = 31;
+                static const int CHART_H      = CHART_BOTTOM - CHART_TOP + 1;  // 11px
+                for (int x = 0; x < TOTAL_WIDTH; x++) {
+                  int hi = (x * e.historyLen) / TOTAL_WIDTH;
+                  if (hi >= e.historyLen) hi = e.historyLen - 1;
+                  float norm   = (e.history[hi] - minP) / range;
+                  int   barH   = max(1, (int)(norm * CHART_H));
+                  for (int py = CHART_BOTTOM; py > CHART_BOTTOM - barH; py--) {
+                    // brighter at the bottom of each bar
+                    int bright = 80 + (int)(120.0f * (py - CHART_TOP) / CHART_H);
+                    display->DrawPixel((uint16_t)x, (uint16_t)py,
+                                       (uint8_t)(cr * bright / 200),
+                                       (uint8_t)(cg * bright / 200),
+                                       (uint8_t)(cb * bright / 200));
+                  }
+                }
+              }
+            }
+          }
+          vTaskDelay(pdMS_TO_TICKS(100));
+          return;  // only return when ticker is actively displaying
+        }
+        // tickerCount == 0: fall through to GIF code — keep display live while fetching
+      }
+#endif // ZEDMD_WIFI
 
       // Play directly requested GIF/RAW immediately
       if (forcePlayPending && forcePlayFile.length() > 0) {
