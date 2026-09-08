@@ -476,10 +476,10 @@ uint8_t screensaverMode = 0;     // 0=Screensaver only, 1=Clock only, 2=Clock+Sc
 // Weather (mode 3) — globals now in weather.cpp
 
 #ifdef ZEDMD_WIFI
-#define TICKER_ROTATION_EVERY 3   // show ticker slot every N GIFs in rotation modes (0/2/4)
-static bool     tickerSlotActive   = false;
-static uint32_t tickerSlotEnd      = 0;
-static uint16_t tickerGifCountdown = 0;
+static bool     tickerSlotActive = false;
+static uint32_t tickerSlotEnd    = 0;
+static bool     rssSlotActive    = false;
+static uint32_t rssSlotEnd       = 0;
 #endif
 
 #ifdef ZEDMD_WIFI
@@ -3042,7 +3042,7 @@ void StartServer() {
       tickerPhaseStart   = 0;
       tickerCurrentIndex = 0;
       tickerSlotActive   = false;
-      tickerGifCountdown = 0;
+      rssSlotActive      = false;
       request->send(200, "text/plain", "OK");
       SaveScreensaverMode();
     } else {
@@ -6032,10 +6032,8 @@ static bool tickerCarouselTick() {
       char priceLine[24];
       const char* cur = e.currency[0] ? e.currency : "";
       const char* sep = e.currency[0] ? " " : "";
-      if      (e.price >= 10000.0f) snprintf(priceLine, sizeof(priceLine), "%.0f%s%s", e.price, sep, cur);
-      else if (e.price >= 1000.0f)  snprintf(priceLine, sizeof(priceLine), "%.1f%s%s", e.price, sep, cur);
-      else if (e.price >= 100.0f)   snprintf(priceLine, sizeof(priceLine), "%.2f%s%s", e.price, sep, cur);
-      else                           snprintf(priceLine, sizeof(priceLine), "%.3f%s%s", e.price, sep, cur);
+      if (e.price >= 10000.0f) snprintf(priceLine, sizeof(priceLine), "%.0f%s%s", e.price, sep, cur);
+      else                     snprintf(priceLine, sizeof(priceLine), "%.2f%s%s", e.price, sep, cur);
       display->DisplayTextScaled(priceLine, 0, 8, 255, 255, 255, 2);
       if (e.historyLen >= 2) {
         float minP = e.history[0], maxP = e.history[0];
@@ -6672,7 +6670,36 @@ void loop() {
       }
 
 #ifdef ZEDMD_WIFI
-      // Ticker rotation slot: show ticker periodically in modes 0/2/4 between GIFs.
+      // RSS rotation slot — scrolls headlines for screensaverDuration seconds, then
+      // chains to the ticker slot (if enabled) before returning to GIF cycling.
+      if (rssSlotActive) {
+        uint32_t now = millis();
+        const char* hl = rssGetHeadlines();
+        if (rssUrl[0] == '\0' || now >= rssSlotEnd || !hl || !hl[0]) {
+          rssSlotActive             = false;
+          screensaverTextNeedsClear = true;
+          if (tickerEnabled && tickerCount > 0) {
+            tickerSlotActive   = true;
+            tickerSlotEnd      = millis() + (uint32_t)screensaverDuration * 1000UL;
+            tickerPhaseStart   = 1;
+            tickerCurrentIndex = 0;
+          }
+        } else {
+          if (screensaverTextNeedsClear) {
+            display->ClearScreen();
+            for (int i = 0; i < NUM_RENDER_BUFFERS; i++) memset(renderBuffer[i], 0, TOTAL_BYTES);
+            screensaverTextNeedsClear = false;
+          }
+          display->RenderTextGFXToBuffer(renderBuffer[currentRenderBuffer],
+                                         hl, screensaverTextScrollX, dateR, dateG, dateB);
+          Render();
+          int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
+          if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+          vTaskDelay(pdMS_TO_TICKS(20));
+          return;
+        }
+      }
+      // Ticker rotation slot — shows stock/crypto carousel for screensaverDuration seconds.
       if (tickerEnabled && tickerSlotActive) {
         uint32_t now = millis();
         if (tickerCount == 0 || now >= tickerSlotEnd) {
@@ -6720,13 +6747,18 @@ void loop() {
             screensaverRAWShowStart = 0;
             screensaverIndex = nextScreensaverIndex();
 #ifdef ZEDMD_WIFI
-            if (tickerEnabled && tickerCount > 0 && screensaverMode != 8) {
-              if (++tickerGifCountdown >= TICKER_ROTATION_EVERY) {
-                tickerGifCountdown  = 0;
-                tickerSlotActive    = true;
-                tickerSlotEnd       = millis() + (uint32_t)screensaverDuration * 1000UL;
-                tickerPhaseStart    = 1;
-                tickerCurrentIndex  = 0;
+            if (screensaverMode != 8) {
+              if (rssUrl[0] != '\0' && rssGetHeadlines()[0] != '\0') {
+                rssSlotActive             = true;
+                rssSlotEnd                = millis() + (uint32_t)screensaverDuration * 1000UL;
+                screensaverTextScrollX    = TOTAL_WIDTH;
+                screensaverTextNeedsClear = true;
+                return;
+              } else if (tickerEnabled && tickerCount > 0) {
+                tickerSlotActive   = true;
+                tickerSlotEnd      = millis() + (uint32_t)screensaverDuration * 1000UL;
+                tickerPhaseStart   = 1;
+                tickerCurrentIndex = 0;
                 return;
               }
             }
@@ -6743,13 +6775,18 @@ void loop() {
             screensaverRAWShowStart = 0;
             screensaverIndex = nextScreensaverIndex();
 #ifdef ZEDMD_WIFI
-            if (tickerEnabled && tickerCount > 0 && screensaverMode != 8) {
-              if (++tickerGifCountdown >= TICKER_ROTATION_EVERY) {
-                tickerGifCountdown  = 0;
-                tickerSlotActive    = true;
-                tickerSlotEnd       = millis() + (uint32_t)screensaverDuration * 1000UL;
-                tickerPhaseStart    = 1;
-                tickerCurrentIndex  = 0;
+            if (screensaverMode != 8) {
+              if (rssUrl[0] != '\0' && rssGetHeadlines()[0] != '\0') {
+                rssSlotActive             = true;
+                rssSlotEnd                = millis() + (uint32_t)screensaverDuration * 1000UL;
+                screensaverTextScrollX    = TOTAL_WIDTH;
+                screensaverTextNeedsClear = true;
+                return;
+              } else if (tickerEnabled && tickerCount > 0) {
+                tickerSlotActive   = true;
+                tickerSlotEnd      = millis() + (uint32_t)screensaverDuration * 1000UL;
+                tickerPhaseStart   = 1;
+                tickerCurrentIndex = 0;
                 return;
               }
             }
