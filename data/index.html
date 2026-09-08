@@ -723,7 +723,7 @@
                     <!-- Stock / Crypto Ticker Section (mode 8) -->
                     <div class="section" id="ticker-section" style="display:none;">
                         <h2 class="section-header">&#128200; Stock / Crypto Ticker</h2>
-                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+                        <div id="ticker-enabled-row" style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
                             <span style="font-size:0.95em; color:#aaa;">Off</span>
                             <label class="toggle-switch" style="margin:0;">
                                 <input type="checkbox" id="ticker-enabled" onchange="saveTickerEnabled()">
@@ -739,10 +739,9 @@
                             <div style="flex:1;">
                                 <label for="ticker-interval-select">Refresh Interval:</label>
                                 <select id="ticker-interval-select" style="width:100%; padding:8px; border-radius:6px; margin-top:4px;">
-                                    <option value="30">30 seconds</option>
-                                    <option value="60" selected>60 seconds</option>
-                                    <option value="300">5 minutes</option>
-                                    <option value="600">10 minutes</option>
+                                    <option value="900" selected>15 minutes</option>
+                                    <option value="1800">30 minutes</option>
+                                    <option value="3600">60 minutes</option>
                                 </select>
                             </div>
                             <div style="flex:1;">
@@ -1713,7 +1712,8 @@
             ssGroup.style.pointerEvents = noDuration ? 'none' : '';
             // show/hide RSS and ticker config sections
             document.getElementById('rss-section').style.display    = (mode == 7) ? 'block' : 'none';
-            document.getElementById('ticker-section').style.display  = (mode == 8) ? 'block' : 'none';
+            document.getElementById('ticker-section').style.display = 'block';
+            document.getElementById('ticker-enabled-row').style.display = (mode == 8) ? 'none' : 'flex';
         }
 
         function saveScreensaverMode() {

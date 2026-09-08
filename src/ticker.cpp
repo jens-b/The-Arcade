@@ -14,7 +14,7 @@ extern void logMsg(const char* fmt, ...);
 TickerEntry  tickerData[MAX_TICKER_SYMBOLS];
 int          tickerCount         = 0;
 char         tickerSymbolsStr[160] = "";
-uint32_t     tickerIntervalSec   = 60;
+uint32_t     tickerIntervalSec   = 900;
 char         tickerRange[4]      = "5d";
 volatile bool tickerFetching     = false;
 uint32_t     lastTickerFetch     = 0;
@@ -293,7 +293,7 @@ void tickerInit() {
   File fi = LittleFS.open("/ticker_interval.val", "r");
   if (fi) {
     tickerIntervalSec = (uint32_t)fi.readStringUntil('\n').toInt();
-    if (tickerIntervalSec < 30) tickerIntervalSec = 60;
+    if (tickerIntervalSec < 60) tickerIntervalSec = 900;
     fi.close();
   }
 
@@ -349,11 +349,11 @@ void tickerRegisterRoutes(AsyncWebServer* server) {
     request->send(200, "text/plain", "OK");
   });
 
-  // POST /ticker_interval  — refresh interval in seconds (30–3600)
+  // POST /ticker_interval  — refresh interval in seconds (60–3600)
   server->on("/ticker_interval", HTTP_POST, [](AsyncWebServerRequest* request) {
     if (!request->hasParam("interval", true)) { request->send(400, "text/plain", "Missing interval"); return; }
     uint32_t iv = (uint32_t)request->getParam("interval", true)->value().toInt();
-    if (iv < 30) iv = 30;
+    if (iv < 60) iv = 900;
     if (iv > 3600) iv = 3600;
     tickerIntervalSec = iv;
 
