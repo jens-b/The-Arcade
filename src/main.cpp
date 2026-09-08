@@ -297,13 +297,9 @@ static uint32_t diagReadUInt(const char* json, const char* key, uint32_t def) {
 // esp_reset_reason() switch in setup(). On dump the RTC buffer contains
 // exactly 1 new "=== ZeDMD booting ===" entry; the rest is pre-crash log.
 static void diagBoot() {
-  // Heap-allocated (PSRAM preferred) instead of a permanent static buffer — no stack
-  // pressure after PANIC (stack might be partially corrupted), and frees the 600 B
-  // again below instead of reserving it in internal SRAM for the entire uptime.
+  // static: no stack pressure after PANIC (stack might be partially corrupted)
   esp_task_wdt_reset();  // 3× flash writes (crash log + diag.json) can take >2s on fragmented LFS
-  char* jsonBuf = (char*)heap_caps_malloc(600, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!jsonBuf) jsonBuf = (char*)malloc(600);
-  if (!jsonBuf) return;  // OOM — skip diag rather than crash on top of a crash
+  static char jsonBuf[600];
   strcpy(jsonBuf, "{}");
   {
     File rf = LittleFS.open("/diag.json", "r");
@@ -397,7 +393,6 @@ static void diagBoot() {
     wf.close();
     LittleFS.rename("/diag.json.tmp", "/diag.json");
   }
-  heap_caps_free(jsonBuf);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -491,14 +486,8 @@ uint32_t     lastMqttReconnect = 0;
 
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   if (length == 0) return;
-  // Allocated once (PSRAM preferred), kept for reuse — same "no stack pressure on
-  // mqttTask" goal as a static array, but out of internal SRAM instead of pinned in it.
-  static char* buf = nullptr;
-  if (!buf) {
-    buf = (char*)heap_caps_malloc(2048, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!buf) buf = (char*)malloc(2048);
-  }
-  if (!buf || length >= 2048) return;
+  static char buf[2048];  // static: no stack pressure on mqttTask (8 KB stack)
+  if (length >= sizeof(buf)) return;
   memcpy(buf, payload, length);
   buf[length] = '\0';
 
@@ -2668,20 +2657,13 @@ void StartServer() {
   });
 
   // Route to return the current settings as JSON
-  // snprintf into a buffer allocated once (PSRAM preferred) — no heap growth from
-  // string concatenation, and no permanent internal-SRAM reservation either
+  // snprintf into static buffer — no heap growth from string concatenation
   server->on("/get_config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    static char* json = nullptr;
-    if (!json) {
-      json = (char*)heap_caps_malloc(896, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-      if (!json) json = (char*)malloc(896);
-    }
-    if (!json) { request->send(500, "text/plain", "OOM"); return; }
-    const size_t jsonCap = 896;
+    static char json[896];
     String trimmedSsid = ssid;
     trimmedSsid.trim();
 
-    int n = snprintf(json, jsonCap,
+    int n = snprintf(json, sizeof(json),
       "{\"ssid\":\"%s\",\"port\":%u"
 #ifndef DISPLAY_RM67162_AMOLED
       ",\"rgbOrder\":%u"
@@ -2705,7 +2687,7 @@ void StartServer() {
       (unsigned)udpDelay, (unsigned)usbPackageSizeMultiplier);
 
 #ifdef ZEDMD_WIFI
-    n += snprintf(json + n, jsonCap - n,
+    n += snprintf(json + n, sizeof(json) - n,
       ",\"mqttServer\":\"%s\",\"mqttPort\":%u,\"mqttTopic\":\"%s\""
       ",\"mqttFieldTemp\":\"%s\",\"mqttFieldHumidity\":\"%s\""
       ",\"mqttFieldWind\":\"%s\",\"mqttFieldPressure\":\"%s\"",
@@ -2714,21 +2696,21 @@ void StartServer() {
       mqttFieldWind.c_str(), mqttFieldPressure.c_str());
 #endif
 
-    n += snprintf(json + n, jsonCap - n,
+    n += snprintf(json + n, sizeof(json) - n,
       ",\"weatherLat\":%.4f,\"weatherLon\":%.4f,\"weatherTimezone\":\"%s\",\"timezone\":\"%s\""
       ",\"clockSegStyle\":%d,\"speakerCount\":%u",
       weatherLat, weatherLon, weatherTimezone.c_str(), clockTimezone.c_str(),
       clockSegStyle, (unsigned)speakerCount);
 
 #ifdef DISPLAY_LED_MATRIX
-    n += snprintf(json + n, jsonCap - n,
+    n += snprintf(json + n, sizeof(json) - n,
       ",\"panelClkphase\":%u,\"panelI2sspeed\":%u"
       ",\"panelLatchBlanking\":%u,\"panelMinRefreshRate\":%u,\"panelDriver\":%u",
       (unsigned)panelClkphase, (unsigned)panelI2sspeed,
       (unsigned)panelLatchBlanking, (unsigned)panelMinRefreshRate, (unsigned)panelDriver);
 #endif
 
-    if (n < (int)jsonCap - 1) json[n++] = '}';
+    if (n < (int)sizeof(json) - 1) json[n++] = '}';
     json[n] = '\0';
 
     request->send(200, "application/json", json);
@@ -4232,23 +4214,12 @@ void checkSdFirmwareUpdate() {
     return;
   }
 
-  // Scoped allocation (PSRAM preferred) instead of a permanent static buffer — this
-  // runs at most once per boot, so there's no reason to reserve 4 KB of internal
-  // SRAM for the entire uptime just for an occasional SD-card firmware copy.
-  const size_t OTA_BUF_SIZE = 4096;
-  uint8_t* buf = (uint8_t*)heap_caps_malloc(OTA_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!buf) buf = (uint8_t*)malloc(OTA_BUF_SIZE);
-  if (!buf) {
-    f.close();
-    Update.abort();
-    logMsg("SD OTA: OOM allocating copy buffer");
-    return;
-  }
+  static uint8_t buf[4096];
   size_t written = 0;
   int chunk = 0;
   bool error = false;
   while (written < fileSize) {
-    size_t toRead = min(OTA_BUF_SIZE, fileSize - written);
+    size_t toRead = min(sizeof(buf), fileSize - written);
     size_t n = f.read(buf, toRead);
     if (n == 0) { error = true; break; }
     if (Update.write(buf, n) != n) { error = true; break; }
@@ -4256,7 +4227,6 @@ void checkSdFirmwareUpdate() {
     if (++chunk % 32 == 0) esp_task_wdt_reset();
   }
   f.close();
-  heap_caps_free(buf);
 
   if (error || !Update.end(true)) {
     Update.abort();
