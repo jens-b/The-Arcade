@@ -12,6 +12,22 @@
 
 extern void radioIconSlugsLoad();
 
+// ArduinoJson v6 custom allocator (duck-typed, no base class) routing preset-parsing
+// memory to PSRAM instead of the default internal-heap `new`/`delete` — keeps the
+// 6 KB preset document off internal SRAM, which is otherwise contended by WiFi/TCP
+// at boot. Used via BasicJsonDocument<SpiRamAllocator> below.
+struct SpiRamAllocator {
+  void* allocate(size_t size) {
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  }
+  void deallocate(void* pointer) {
+    heap_caps_free(pointer);
+  }
+  void* reallocate(void* ptr, size_t new_size) {
+    return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  }
+};
+
 static constexpr uint32_t RADIO_DISP_TRACK_MS   = 15000;
 static constexpr uint32_t RADIO_SWITCH_GRACE_MS  =  6000;
 static constexpr uint32_t RADIO_DISP_CONNECT_MS  = 30000;
@@ -637,7 +653,7 @@ void radioStopLocalFile() {
 void radioLoadPresets() {
   File f = LittleFS.open("/radio_presets.json", "r");
   if (!f) return;
-  DynamicJsonDocument doc(6144);
+  BasicJsonDocument<SpiRamAllocator> doc(6144);
   if (deserializeJson(doc, f) == DeserializationError::Ok) {
     radioPresetCount = 0;
     for (JsonObject p : doc.as<JsonArray>()) {
