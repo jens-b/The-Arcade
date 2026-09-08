@@ -81,11 +81,10 @@ static bool isWknOrIsin(const char* sym) {
 
 // Queries Yahoo Finance search API to resolve a WKN/ISIN to a ticker symbol.
 // Uses the provided buf (PSRAM) as scratch space. Writes result to out on success.
+// secure and http are shared across the fetch cycle (keepalive).
 static bool resolveToYahooSymbol(const char* query, char* buf, size_t bufLen,
-                                  char* out, size_t outLen) {
-  WiFiClientSecure secure;
-  secure.setInsecure();
-  HTTPClient http;
+                                  char* out, size_t outLen,
+                                  WiFiClientSecure& secure, HTTPClient& http) {
   char url[192];
   snprintf(url, sizeof(url),
            "https://query1.finance.yahoo.com/v1/finance/search?q=%s&quotesCount=1&newsCount=0",
@@ -124,17 +123,18 @@ static bool resolveToYahooSymbol(const char* query, char* buf, size_t bufLen,
 }
 
 // Fetches price, changePct, and history for one symbol via v8 chart.
-// WiFiClientSecure and HTTPClient are local — TCP connection closes automatically
-// on return via destructor, freeing lwIP pbufs from internal SRAM immediately.
+// secure and http are shared across the fetch cycle — one TLS handshake per cycle.
 // WKN (6 digits) and ISIN (e.g. DE0008404005) are resolved to Yahoo ticker first.
 // The resolved symbol is cached in entry->resolved to avoid a second HTTPS call on every fetch.
-static bool fetchSymbol(TickerEntry* entry, char* body) {
+static bool fetchSymbol(TickerEntry* entry, char* body,
+                        WiFiClientSecure& secure, HTTPClient& http) {
   const char* querySymbol = entry->symbol;
   if (isWknOrIsin(entry->symbol)) {
     if (entry->resolved[0] == '\0') {
       // first time: resolve and cache
       if (resolveToYahooSymbol(entry->symbol, body, TICKER_BUF,
-                               entry->resolved, sizeof(entry->resolved))) {
+                               entry->resolved, sizeof(entry->resolved),
+                               secure, http)) {
         logMsg("Ticker: resolved %s -> %s", entry->symbol, entry->resolved);
       } else {
         logMsg("Ticker: could not resolve %s, skipping", entry->symbol);
@@ -144,9 +144,6 @@ static bool fetchSymbol(TickerEntry* entry, char* body) {
     querySymbol = entry->resolved;
   }
 
-  WiFiClientSecure secure;
-  secure.setInsecure();
-  HTTPClient http;
   char url[256];
   snprintf(url, sizeof(url),
            "https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1h&range=%s",
@@ -237,17 +234,25 @@ static void tickerFetchTask(void* /*pvParams*/) {
     strncpy(symBuf, tickerSymbolsStr, sizeof(symBuf) - 1);
     symBuf[sizeof(symBuf) - 1] = '\0';
 
+    // One shared TLS connection for all symbol fetches — http.end() between symbols
+    // keeps the TCP connection alive (keepalive), next http.begin() reuses it.
+    WiFiClientSecure secure;
+    secure.setInsecure();
+    HTTPClient http;
+    http.setReuse(true);
+
     char* tok = strtok(symBuf, ",");
     while (tok && n < MAX_TICKER_SYMBOLS) {
       while (*tok == ' ') tok++;
       if (*tok) {
         memset(&tmp[n], 0, sizeof(TickerEntry));
         strncpy(tmp[n].symbol, tok, sizeof(tmp[n].symbol) - 1);
-        if (fetchSymbol(&tmp[n], body)) n++;
+        if (fetchSymbol(&tmp[n], body, secure, http)) n++;
       }
       tok = strtok(nullptr, ",");
     }
 
+    http.end();  // close the shared connection after all fetches
     logMsg("Ticker: fetch done, %d valid", n);
 
     if (n > 0) {
