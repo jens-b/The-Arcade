@@ -6476,7 +6476,8 @@ void loop() {
                                            hl, screensaverTextScrollX, dateR, dateG, dateB);
             Render();
             int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
-            if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+            screensaverTextScrollX = screensaverTextScrollX - 1;
+            if (screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
             vTaskDelay(pdMS_TO_TICKS(20));
             return;
           }
@@ -6568,7 +6569,8 @@ void loop() {
                                            hl, screensaverTextScrollX, dateR, dateG, dateB);
             Render();
             int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
-            if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+            screensaverTextScrollX = screensaverTextScrollX - 1;
+            if (screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
             vTaskDelay(pdMS_TO_TICKS(20));
             return;
           }
@@ -6688,7 +6690,8 @@ void loop() {
                                          displayTextR, displayTextG, displayTextB);
           Render();
           int16_t textW = (int16_t)display->GetTextGFXWidth(displayTextContent);
-          if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+          screensaverTextScrollX = screensaverTextScrollX - 1;
+          if (screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
         }
         vTaskDelay(pdMS_TO_TICKS(20));
         return;
@@ -6726,7 +6729,8 @@ void loop() {
                                          displayTextR, displayTextG, displayTextB);
           Render();
           int16_t textW = (int16_t)display->GetTextGFXWidth(displayTextContent);
-          if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+          screensaverTextScrollX = screensaverTextScrollX - 1;
+          if (screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
         }
         vTaskDelay(pdMS_TO_TICKS(20));
         return;
@@ -6750,7 +6754,8 @@ void loop() {
                                          dateR, dateG, dateB);
           Render();
           int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
-          if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+          screensaverTextScrollX = screensaverTextScrollX - 1;
+          if (screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
         }
         vTaskDelay(pdMS_TO_TICKS(20));
         return;
@@ -6826,7 +6831,8 @@ void loop() {
                                          hl, screensaverTextScrollX, dateR, dateG, dateB);
           Render();
           int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
-          if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+          screensaverTextScrollX = screensaverTextScrollX - 1;
+          if (screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
           vTaskDelay(pdMS_TO_TICKS(20));
           return;
         }
