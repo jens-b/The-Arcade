@@ -6454,10 +6454,66 @@ void loop() {
       // Mode 1: Clock + Weather (permanent, no forecast alternation)
       if (screensaverMode == 1) {
         uint32_t now = millis();
+#ifdef ZEDMD_WIFI
+        if (rssSlotActive) {
+          const char* hl = rssGetHeadlines();
+          if (rssUrl[0] == '\0' || now >= rssSlotEnd || !hl || !hl[0]) {
+            rssSlotActive             = false;
+            screensaverTextNeedsClear = true;
+            if (tickerEnabled && tickerCount > 0) {
+              tickerSlotActive   = true;
+              tickerSlotEnd      = millis() + (uint32_t)screensaverDuration * 1000UL;
+              tickerPhaseStart   = 1;
+              tickerCurrentIndex = 0;
+            }
+          } else {
+            if (screensaverTextNeedsClear) {
+              display->ClearScreen();
+              for (int i = 0; i < NUM_RENDER_BUFFERS; i++) memset(renderBuffer[i], 0, TOTAL_BYTES);
+              screensaverTextNeedsClear = false;
+            }
+            display->RenderTextGFXToBuffer(renderBuffer[currentRenderBuffer],
+                                           hl, screensaverTextScrollX, dateR, dateG, dateB);
+            Render();
+            int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
+            if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+            vTaskDelay(pdMS_TO_TICKS(20));
+            return;
+          }
+        }
+        if (tickerEnabled && tickerSlotActive) {
+          if (tickerCount == 0 || now >= tickerSlotEnd) {
+            tickerSlotActive = false;
+            tickerPhaseStart = 0;
+          } else {
+            if (tickerCarouselTick()) {
+              vTaskDelay(pdMS_TO_TICKS(100));
+              return;
+            }
+          }
+        }
+#endif
         uint32_t weatherInterval = forecastAvailable ? (15UL * 60UL * 1000UL) : (2UL * 60UL * 1000UL);
         if (lastWeatherFetch == 0 ? (now > 30000UL) : ((now - lastWeatherFetch) >= weatherInterval)) {
           weatherTrigger();
         }
+#ifdef ZEDMD_WIFI
+        if (clockPhaseStart == 0) clockPhaseStart = now;
+        if ((now - clockPhaseStart) >= (uint32_t)screensaverDuration * 1000UL) {
+          clockPhaseStart = now;
+          if (rssUrl[0] != '\0' && rssGetHeadlines()[0] != '\0') {
+            rssSlotActive             = true;
+            rssSlotEnd                = now + (uint32_t)screensaverDuration * 1000UL;
+            screensaverTextScrollX    = TOTAL_WIDTH;
+            screensaverTextNeedsClear = true;
+          } else if (tickerEnabled && tickerCount > 0) {
+            tickerSlotActive   = true;
+            tickerSlotEnd      = now + (uint32_t)screensaverDuration * 1000UL;
+            tickerPhaseStart   = 1;
+            tickerCurrentIndex = 0;
+          }
+        }
+#endif
         uint32_t t0 = millis();
         weatherDisplayClock();
         uint32_t el = millis() - t0;
@@ -6490,6 +6546,45 @@ void loop() {
       // mode 3: clock + weather side by side
       if (screensaverMode == 3) {
         uint32_t now = millis();
+#ifdef ZEDMD_WIFI
+        if (rssSlotActive) {
+          const char* hl = rssGetHeadlines();
+          if (rssUrl[0] == '\0' || now >= rssSlotEnd || !hl || !hl[0]) {
+            rssSlotActive             = false;
+            screensaverTextNeedsClear = true;
+            if (tickerEnabled && tickerCount > 0) {
+              tickerSlotActive   = true;
+              tickerSlotEnd      = millis() + (uint32_t)screensaverDuration * 1000UL;
+              tickerPhaseStart   = 1;
+              tickerCurrentIndex = 0;
+            }
+          } else {
+            if (screensaverTextNeedsClear) {
+              display->ClearScreen();
+              for (int i = 0; i < NUM_RENDER_BUFFERS; i++) memset(renderBuffer[i], 0, TOTAL_BYTES);
+              screensaverTextNeedsClear = false;
+            }
+            display->RenderTextGFXToBuffer(renderBuffer[currentRenderBuffer],
+                                           hl, screensaverTextScrollX, dateR, dateG, dateB);
+            Render();
+            int16_t textW = (int16_t)display->GetTextGFXWidth(hl);
+            if (--screensaverTextScrollX < -textW) screensaverTextScrollX = TOTAL_WIDTH;
+            vTaskDelay(pdMS_TO_TICKS(20));
+            return;
+          }
+        }
+        if (tickerEnabled && tickerSlotActive) {
+          if (tickerCount == 0 || now >= tickerSlotEnd) {
+            tickerSlotActive = false;
+            tickerPhaseStart = 0;
+          } else {
+            if (tickerCarouselTick()) {
+              vTaskDelay(pdMS_TO_TICKS(100));
+              return;
+            }
+          }
+        }
+#endif
         uint32_t weatherInterval = forecastAvailable ? (15UL * 60UL * 1000UL) : (2UL * 60UL * 1000UL);
         if (lastWeatherFetch == 0 ? (now > 30000UL) : ((now - lastWeatherFetch) >= weatherInterval)) {
           weatherTrigger();
@@ -6497,10 +6592,47 @@ void loop() {
         if (forecastAvailable) {
           if (weatherPhaseStart == 0) weatherPhaseStart = now;
           if ((now - weatherPhaseStart) >= (uint32_t)screensaverDuration * 1000) {
-            weatherPage = (weatherPage == 0) ? 1 : 0;
             weatherPhaseStart = now;
-            forceClockRedraw = true;
+            forceClockRedraw  = true;
+            if (weatherPage == 1) {
+              // full cycle done (clock→forecast) — insert RSS/ticker slot before restarting
+              weatherPage = 0;
+#ifdef ZEDMD_WIFI
+              if (rssUrl[0] != '\0' && rssGetHeadlines()[0] != '\0') {
+                rssSlotActive             = true;
+                rssSlotEnd                = now + (uint32_t)screensaverDuration * 1000UL;
+                screensaverTextScrollX    = TOTAL_WIDTH;
+                screensaverTextNeedsClear = true;
+              } else if (tickerEnabled && tickerCount > 0) {
+                tickerSlotActive   = true;
+                tickerSlotEnd      = now + (uint32_t)screensaverDuration * 1000UL;
+                tickerPhaseStart   = 1;
+                tickerCurrentIndex = 0;
+              }
+#endif
+            } else {
+              weatherPage = 1;
+            }
           }
+        } else {
+          // no forecast: use clockPhaseStart for time-based RSS/ticker trigger
+#ifdef ZEDMD_WIFI
+          if (clockPhaseStart == 0) clockPhaseStart = now;
+          if ((now - clockPhaseStart) >= (uint32_t)screensaverDuration * 1000UL) {
+            clockPhaseStart = now;
+            if (rssUrl[0] != '\0' && rssGetHeadlines()[0] != '\0') {
+              rssSlotActive             = true;
+              rssSlotEnd                = now + (uint32_t)screensaverDuration * 1000UL;
+              screensaverTextScrollX    = TOTAL_WIDTH;
+              screensaverTextNeedsClear = true;
+            } else if (tickerEnabled && tickerCount > 0) {
+              tickerSlotActive   = true;
+              tickerSlotEnd      = now + (uint32_t)screensaverDuration * 1000UL;
+              tickerPhaseStart   = 1;
+              tickerCurrentIndex = 0;
+            }
+          }
+#endif
         }
         uint32_t t0 = millis();
         if (weatherPage == 1) {

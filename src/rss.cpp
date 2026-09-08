@@ -47,16 +47,21 @@ static void extractTag(const char* src, const char* open, const char* close,
 // ── fetch task ────────────────────────────────────────────────────────────────
 
 static void rssFetchTask(void* /*pvParams*/) {
+  vTaskSuspend(nullptr);  // self-suspend first — avoid race with xTaskCreateStatic on other core
+
   while (true) {
-    if (rssUrl[0] == '\0') { rssFetching = false; vTaskSuspend(nullptr); continue; }
+    if (rssUrl[0] == '\0' || WiFi.status() != WL_CONNECTED) {
+      rssFetching = false;
+      vTaskSuspend(nullptr);
+      continue;
+    }
 
     char* body = (char*)heap_caps_malloc(RSS_BUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!body) { rssFetching = false; vTaskSuspend(nullptr); continue; }
 
-    WiFiClient     plain;
+    WiFiClient       plain;
     WiFiClientSecure secure;
-    HTTPClient     http;
-    int httpCode = -1;
+    HTTPClient       http;
 
     if (strncmp(rssUrl, "https://", 8) == 0) {
       secure.setInsecure();
@@ -66,15 +71,31 @@ static void rssFetchTask(void* /*pvParams*/) {
     }
     http.setTimeout(10000);
     http.setUserAgent("ZeDMD/1.8");
-    httpCode = http.GET();
+    int httpCode = http.GET();
 
+    int len = 0;
     if (httpCode == HTTP_CODE_OK) {
-      int len = http.getStream().readBytes(body, (int)RSS_BUF - 1);
+      WiFiClient* stream = http.getStreamPtr();
+      int contentLen = http.getSize();
+      uint32_t lastData = millis();
+      while (len < (int)RSS_BUF - 1) {
+        int avail = stream->available();
+        if (avail > 0) {
+          int chunk = stream->readBytes(body + len, min(avail, (int)RSS_BUF - 1 - len));
+          if (chunk > 0) { len += chunk; lastData = millis(); }
+          if (contentLen > 0 && len >= contentLen) break;
+        } else if (!stream->connected()) {
+          break;
+        } else if (millis() - lastData > 2000) {
+          break;
+        } else {
+          vTaskDelay(pdMS_TO_TICKS(10));
+        }
+      }
       body[len] = '\0';
       logMsg("RSS: fetch OK, %d bytes", len);
     } else {
       logMsg("RSS: fetch HTTP %d", httpCode);
-      body[0] = '\0';
     }
     http.end();
 
@@ -145,7 +166,7 @@ void rssInit() {
   rssFetchHandle = xTaskCreateStatic(rssFetchTask, "rssFetch",
                                      16384 / sizeof(StackType_t), nullptr,
                                      1, rssStack, &rssTaskBuf);
-  // task starts suspended; rssTrigger() resumes it
+  // task self-suspends as its first instruction; this call is a safe redundant guard
   vTaskSuspend(rssFetchHandle);
 }
 
