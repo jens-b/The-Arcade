@@ -380,7 +380,7 @@ static void diagBoot() {
       rtcLogValid = false;
       rtcLogCount = 0;
       rtcLogHead  = 0;
-      logMsg("Crash-Dump: %s (uptime war %us)", fname, (unsigned)lastUp);
+      logMsg("Crash dump: %s (uptime was %us)", fname, (unsigned)lastUp);
     } else {
       logMsg("diagBoot: ERROR - could not open %s", fname);
     }
@@ -452,8 +452,8 @@ volatile uint32_t setupScreenUntil = 0;  // pause screensaver while setup screen
 static bool     displayTimerEnabled  = false;
 static char     displayTimerFrom[6]  = "23:00";
 static char     displayTimerUntil[6] = "07:00";
-static bool     displayTimerBlank    = false;   // Sofort-dunkel (manuell, Button)
-static bool     displayScheduledBlank = false;  // Zeitgesteuert (Timer)
+static bool     displayTimerBlank    = false;   // immediate blank (manual button)
+static bool     displayScheduledBlank = false;  // scheduled blank (timer)
 static uint32_t displayTimerLastCheck = 0;
 static volatile bool displayTextActive     = false;
 static char   displayTextContent[128]      = "";
@@ -570,8 +570,8 @@ volatile bool    screensaverTextNeedsClear = true;          // mode 5/6: clear b
 SPIClass spiSD(HSPI);  // Global — must not be local! (SPI-SD builds only)
 #endif
 String screensaverPaths = "";      // comma-separated list of selected paths (empty = LittleFS)
-static constexpr size_t SCREENSAVER_FAV_BUF    = 24576;  // 24 KB — ~700 Pfade à 32 Zeichen
-static constexpr size_t SCREENSAVER_IGNORE_BUF = 16384;  // 16 KB — ~480 Pfade
+static constexpr size_t SCREENSAVER_FAV_BUF    = 24576;  // 24 KB — ~700 paths at 32 chars each
+static constexpr size_t SCREENSAVER_IGNORE_BUF = 16384;  // 16 KB — ~480 paths
 char* screensaverFavorites = nullptr;  // PSRAM — no internal heap pressure from += growth
 char* screensaverIgnore    = nullptr;  // PSRAM
 volatile bool forcePlayPending = false;
@@ -940,7 +940,7 @@ void LoadScale() {
     SaveScale();
     return;
   }
-  display->SetCurrentScalingMode(f.read());
+  int vs = f.read(); if (vs >= 0) display->SetCurrentScalingMode((uint8_t)vs);
   f.close();
 }
 
@@ -2190,9 +2190,9 @@ void sendLittleFSHtml(AsyncWebServerRequest *request, const char* path) {
       "<style>body{font-family:sans-serif;text-align:center;padding:2em;"
       "background:#1a1a1a;color:#eee}h2{color:#e67e22}p{color:#aaa}</style>"
       "</head><body>"
-      "<h2>Kurz ausgelastet</h2>"
-      "<p>Speicher kurzzeitig belegt &mdash; kein Neustart n&ouml;tig.<br>"
-      "Seite wird automatisch neu geladen...</p>"
+      "<h2>Temporarily busy</h2>"
+      "<p>Memory briefly occupied &mdash; no restart needed.<br>"
+      "Page will reload automatically...</p>"
       "<script>setTimeout(function(){location.reload();},2000);</script>"
       "</body></html>");
     return;
@@ -4416,7 +4416,7 @@ void SaveScreensaverShuffle() {
 void LoadScreensaverShuffle() {
   File f = LittleFS.open("/screensaver_shuffle.val", "r");
   if (!f) { SaveScreensaverShuffle(); return; }
-  screensaverShuffle = (bool)f.read();
+  int v = f.read(); if (v >= 0) screensaverShuffle = (bool)v;
   f.close();
 }
 
@@ -4432,7 +4432,7 @@ void SaveScreensaverStrictTimer() {
 void LoadScreensaverStrictTimer() {
   File f = LittleFS.open("/screensaver_strict_timer.val", "r");
   if (!f) { SaveScreensaverStrictTimer(); return; }
-  screensaverStrictTimer = (bool)f.read();
+  int v = f.read(); if (v >= 0) screensaverStrictTimer = (bool)v;
   f.close();
 }
 
@@ -4830,10 +4830,10 @@ bool sdSpiMountWithFallback() {
     esp_task_wdt_reset();  // SD.begin() may block ~2s per attempt with no card
     uint32_t spd = speeds[i < nSpeeds ? i : nSpeeds - 1];
     if (SD.begin(SD_CS, spiSD, spd)) {
-      logMsg("SD: Mount OK bei %lu MHz (Versuch %d)", spd / 1000000, i + 1);
+      logMsg("SD: mount OK at %lu MHz (attempt %d)", spd / 1000000, i + 1);
       return true;
     }
-    logMsg("SD: Versuch %d fehlgeschlagen (%lu MHz)", i + 1, spd / 1000000);
+    logMsg("SD: attempt %d failed (%lu MHz)", i + 1, spd / 1000000);
     SD.end();
     delay(500);
   }
@@ -4851,7 +4851,7 @@ void InitSDCard() {
       mounted = true;
       break;
     }
-    logMsg("SD: Mount-Versuch %d fehlgeschlagen...", i + 1);
+    logMsg("SD: mount attempt %d failed...", i + 1);
     SD_MMC.end();
     delay(750);
   }
@@ -5268,7 +5268,7 @@ void LoadScreensaverFiles() {
       if (cached > 0) continue;
 
       // Cache miss — scan SD directory
-      logMsg("LoadScreensaver: SD Pfad=%s (kein Cache, scanne...) exists=%d",
+      logMsg("LoadScreensaver: SD path=%s (no cache, scanning...) exists=%d",
              sdPath.c_str(), (int)SD.exists(sdPath.c_str()));
       File dir = SD.open(sdPath.c_str());
       if (dir && dir.isDirectory()) {
@@ -5688,7 +5688,7 @@ void setup() {
       }
     }
     if (hasLittleFSFiles)
-      display->DisplayText("Fallback: LittleFS aktiv", 0, 8, 255, 80, 0);
+      display->DisplayText("Fallback: LittleFS active", 0, 8, 255, 80, 0);
     else
       display->DisplayText("Check SD card and restart.", 0, 8, 255, 80, 0);
     Render();
