@@ -564,7 +564,7 @@
             <div id="tab-display" class="tab-panel">
                 <div class="sections-grid">
                     <!-- Display Text Section -->
-                    <div class="section">
+                    <div class="section" style="align-self: start;">
                         <h2 class="section-header">&#128196; Display Text</h2>
                         <label for="display-text-input">Text:</label>
                         <input type="text" id="display-text-input" maxlength="127" placeholder="Enter text...">
@@ -597,7 +597,7 @@
                     </div>
 
                     <!-- Display Timer Section -->
-                    <div class="section">
+                    <div class="section" style="align-self: start;">
                         <h2 class="section-header">&#128337; Display Timer</h2>
                         <p style="font-size:0.82em; color:#888; margin:0 0 12px 0;">Turns the display off daily between the set times — e.g. off at 23:00, back on at 07:00.</p>
                         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
@@ -619,13 +619,13 @@
                             <span id="display-timer-status" class="status-message" style="margin:0;"></span>
                         </div>
                         <button id="display-blank-btn" onclick="toggleDisplayBlank()"
-                            style="width:auto; padding:8px 18px; background:#555;">&#x23FC; Display off</button>
-                        <span id="display-blank-status" class="status-message" style="margin-left:8px;"></span>
+                            style="width:auto; padding:8px 14px; margin:0; background:#555;">&#x23FC; Display off</button>
+                        <span id="display-blank-status" class="status-message"></span>
                     </div>
 
                     <!-- Display Settings Section -->
-                    <div class="section">
-                        <h2 class="section-header">Display Settings</h2>
+                    <div class="section" style="grid-row: span 2;">
+                        <h2 class="section-header">&#9881;&#65039; Display Settings</h2>
 
                         <label for="screensaver-mode">Display Mode:</label>
                         <select id="screensaver-mode" onchange="saveScreensaverMode()">
@@ -648,7 +648,7 @@
                             <label>Date Color:</label>
                             <input type="color" id="date-color" value="#b4b4b4"
                                 style="width:60px; height:36px; border:none; border-radius:4px; cursor:pointer; margin-bottom:8px;">
-                            <button onclick="saveClockColors()">Apply Clock Colors</button>
+                            <button onclick="saveClockColors()" style="width:auto; margin:0;">Apply Clock Colors</button>
                             <div id="clock-color-status" class="status-message"></div>
                             <div style="display:flex; align-items:center; gap:8px; margin-bottom:15px; flex-wrap:wrap;">
                                 <span style="font-size:0.9em; color:var(--text-muted, #888); white-space:nowrap;">Segment Style:</span>
@@ -670,9 +670,8 @@
                                 oninput="updateScreensaverBrightness()">
                             <span>&#x2600;</span>
                         </div>
-                        <br>
                         <div id="screensaver-status" class="status-message"></div>
-                        <button onclick="applyScreensaverBrightness()">Apply Display Brightness</button>
+                        <button onclick="applyScreensaverBrightness()" style="width:auto; margin:0;">Apply Display Brightness</button>
 
                         <div id="screensaver-duration-group">
                         <label for="screensaver-duration">Screensaver Duration: <span id="screensaver-duration-value">10</span>s</label>
@@ -682,9 +681,8 @@
                                 oninput="updateScreensaverDuration()">
                             <span>60s</span>
                         </div>
-                        <br>
                         <div id="screensaver-duration-status" class="status-message"></div>
-                        <button onclick="applyScreensaverDuration()">Apply Duration</button>
+                        <button onclick="applyScreensaverDuration()" style="width:auto; margin:0;">Apply Duration</button>
                         </div>
 
                         <div style="display:flex; align-items:center; gap:24px; margin-top:14px; flex-wrap:wrap;">
@@ -708,10 +706,10 @@
                         <div id="screensaver-strict-timer-status" class="status-message"></div>
                     </div>
 
-                    <!-- RSS News Ticker Section (mode 7) -->
-                    <div class="section" id="rss-section" style="display:none;">
+                    <!-- RSS News Ticker Section -->
+                    <div class="section" id="rss-section" style="align-self: start;">
                         <h2 class="section-header">&#128240; News Ticker (RSS)</h2>
-                        <p style="font-size:0.82em; color:#888; margin:0 0 12px 0;">RSS 2.0 feed URL — headlines scroll across the display. Refreshed every 15 minutes.</p>
+                        <p style="font-size:0.82em; color:#888; margin:0 0 12px 0;">RSS 2.0 feed URL — headlines scroll in Mode 7, and as a carousel slot in all other modes. Refreshed every 15 minutes.</p>
                         <label for="rss-url-input">Feed URL:</label>
                         <input type="text" id="rss-url-input" maxlength="255" placeholder="https://www.tagesschau.de/xml/rss2">
                         <div style="display:flex; gap:10px; margin-top:10px;">
@@ -720,8 +718,8 @@
                         <div id="rss-status" class="status-message"></div>
                     </div>
 
-                    <!-- Stock / Crypto Ticker Section (mode 8) -->
-                    <div class="section" id="ticker-section" style="display:none;">
+                    <!-- Stock / Crypto Ticker Section -->
+                    <div class="section" id="ticker-section" style="align-self: start;">
                         <h2 class="section-header">&#128200; Stock / Crypto Ticker</h2>
                         <div id="ticker-enabled-row" style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
                             <span style="font-size:0.95em; color:#aaa;">Off</span>
@@ -1710,8 +1708,8 @@
             var noDuration = (mode == 5 || mode == 7 || mode == 8);
             ssGroup.style.opacity = noDuration ? '0.4' : '1';
             ssGroup.style.pointerEvents = noDuration ? 'none' : '';
-            // show/hide RSS and ticker config sections
-            document.getElementById('rss-section').style.display    = (mode == 7) ? 'block' : 'none';
+            // both sections always visible — RSS and ticker apply in all modes
+            document.getElementById('rss-section').style.display    = 'block';
             document.getElementById('ticker-section').style.display = 'block';
             document.getElementById('ticker-enabled-row').style.display = (mode == 8) ? 'none' : 'flex';
         }
