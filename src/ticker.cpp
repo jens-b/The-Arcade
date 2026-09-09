@@ -64,11 +64,11 @@ static bool extractFloat(const char* src, const char* key, float* out) {
 
 // ── fetch task ────────────────────────────────────────────────────────────────
 
-// Returns true if sym looks like a WKN (6 digits) or ISIN (2 letters + 10 alphanumeric).
+// Returns true if sym looks like a WKN (6 alphanumeric chars) or ISIN (2 letters + 10 alphanumeric).
 static bool isWknOrIsin(const char* sym) {
   size_t len = strlen(sym);
   if (len == 6) {
-    for (size_t i = 0; i < 6; i++) if (!isdigit((unsigned char)sym[i])) return false;
+    for (size_t i = 0; i < 6; i++) if (!isalnum((unsigned char)sym[i])) return false;
     return true;
   }
   if (len == 12) {
