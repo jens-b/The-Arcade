@@ -308,7 +308,7 @@ static void diagBoot() {
   {
     File rf = LittleFS.open("/diag.json", "r");
     if (rf) {
-      size_t n = rf.readBytes(jsonBuf, sizeof(jsonBuf) - 1);
+      size_t n = rf.readBytes(jsonBuf, 599);
       jsonBuf[n] = '\0';
       rf.close();
     }
@@ -1159,6 +1159,7 @@ void * GIFOpenFile(const char *fname, int32_t *pSize) {
   }
   if (!gifReadAheadBuf) {
     gifReadAheadBuf = (uint8_t*)heap_caps_malloc(GIF_READ_AHEAD_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!gifReadAheadBuf) gifReadAheadBuf = (uint8_t*)malloc(GIF_READ_AHEAD_SIZE);
   }
   gifReadAheadStart = 0;
   gifReadAheadLen   = 0;
