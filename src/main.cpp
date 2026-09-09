@@ -688,7 +688,7 @@ void RestartAfterError() { DoRestart(30); }
 void DisplayNumber(uint32_t chf, uint8_t nc, uint16_t x, uint16_t y, uint8_t r,
                    uint8_t g, uint8_t b, bool transparent = false) {
   char text[16];
-  sprintf(text, "%d", chf);
+  snprintf(text, sizeof(text), "%lu", (unsigned long)chf);
 
   uint8_t i = 0;
   if (strlen(text) < nc) {
@@ -5662,6 +5662,14 @@ void setup() {
       break;
     }
 
+    case ESP_RST_BROWNOUT: {
+      // Low-power event: deep sleep 60s to let power supply recover
+      display->DisplayText("Low power — sleeping 60s", 0, 0, 255, 80, 0);
+      esp_sleep_enable_timer_wakeup(60ULL * 1000000ULL);
+      esp_deep_sleep_start();
+      break;
+    }
+
     default:
       break;
   }
@@ -6953,7 +6961,7 @@ void loop() {
     }
 
     if (logoActive) {
-      display->SetBrightness(brightness);
+      ApplyBrightness(brightness);
       ClearScreen();
       logoActive = false;
     }
