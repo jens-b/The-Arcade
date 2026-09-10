@@ -64,7 +64,7 @@ static bool extractFloat(const char* src, const char* key, float* out) {
 
 // ── fetch task ────────────────────────────────────────────────────────────────
 
-// Returns true if sym looks like a WKN (6 alphanumeric chars) or ISIN (2 letters + 10 alphanumeric).
+// Returns true if sym is a WKN (6 alphanumeric) or ISIN (2 letters + 10 alphanumeric).
 static bool isWknOrIsin(const char* sym) {
   size_t len = strlen(sym);
   if (len == 6) {
@@ -79,9 +79,7 @@ static bool isWknOrIsin(const char* sym) {
   return false;
 }
 
-// Queries Yahoo Finance search API to resolve a WKN/ISIN to a ticker symbol.
-// Uses the provided buf (PSRAM) as scratch space. Writes result to out on success.
-// secure and http are shared across the fetch cycle (keepalive).
+// Resolves a WKN/ISIN to a Yahoo Finance ticker symbol via search API.
 static bool resolveToYahooSymbol(const char* query, char* buf, size_t bufLen,
                                   char* out, size_t outLen,
                                   WiFiClientSecure& secure, HTTPClient& http) {
@@ -122,10 +120,7 @@ static bool resolveToYahooSymbol(const char* query, char* buf, size_t bufLen,
   return ok;
 }
 
-// Fetches price, changePct, and history for one symbol via v8 chart.
-// secure and http are shared across the fetch cycle — one TLS handshake per cycle.
-// WKN (6 digits) and ISIN (e.g. DE0008404005) are resolved to Yahoo ticker first.
-// The resolved symbol is cached in entry->resolved to avoid a second HTTPS call on every fetch.
+// Fetches price, changePct and history for one symbol; resolves WKN/ISIN on first call.
 static bool fetchSymbol(TickerEntry* entry, char* body,
                         WiFiClientSecure& secure, HTTPClient& http) {
   const char* querySymbol = entry->symbol;

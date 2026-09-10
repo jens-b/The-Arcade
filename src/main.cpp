@@ -297,9 +297,7 @@ static uint32_t diagReadUInt(const char* json, const char* key, uint32_t def) {
 // esp_reset_reason() switch in setup(). On dump the RTC buffer contains
 // exactly 1 new "=== ZeDMD booting ===" entry; the rest is pre-crash log.
 static void diagBoot() {
-  // Heap-allocated (PSRAM preferred) instead of a permanent static buffer — no stack
-  // pressure after PANIC (stack might be partially corrupted), and frees the 600 B
-  // again below instead of reserving it in internal SRAM for the entire uptime.
+  // Heap-alloc (PSRAM preferred): avoids permanent internal-SRAM reservation and stack pressure post-PANIC.
   esp_task_wdt_reset();  // 3× flash writes (crash log + diag.json) can take >2s on fragmented LFS
   char* jsonBuf = (char*)heap_caps_malloc(600, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!jsonBuf) jsonBuf = (char*)malloc(600);
@@ -498,9 +496,7 @@ uint32_t     lastMqttReconnect = 0;
 
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   if (length == 0) return;
-  // Allocated once (PSRAM preferred), kept for reuse — same "no stack pressure on
-  // mqttTask" goal as a static array, but out of internal SRAM instead of pinned in it.
-  static char* buf = nullptr;
+  static char* buf = nullptr;  // allocated once (PSRAM preferred) — off internal SRAM
   if (!buf) {
     buf = (char*)heap_caps_malloc(2048, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!buf) buf = (char*)malloc(2048);
@@ -2679,10 +2675,8 @@ void StartServer() {
   });
 
   // Route to return the current settings as JSON
-  // snprintf into a buffer allocated once (PSRAM preferred) — no heap growth from
-  // string concatenation, and no permanent internal-SRAM reservation either
   server->on("/get_config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    static char* json = nullptr;
+    static char* json = nullptr;  // allocated once (PSRAM preferred)
     if (!json) {
       json = (char*)heap_caps_malloc(896, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
       if (!json) json = (char*)malloc(896);
@@ -4245,10 +4239,7 @@ void checkSdFirmwareUpdate() {
     return;
   }
 
-  // Scoped allocation (PSRAM preferred) instead of a permanent static buffer — this
-  // runs at most once per boot, so there's no reason to reserve 4 KB of internal
-  // SRAM for the entire uptime just for an occasional SD-card firmware copy.
-  const size_t OTA_BUF_SIZE = 4096;
+  const size_t OTA_BUF_SIZE = 4096;  // scoped alloc (PSRAM preferred) — runs once per boot
   uint8_t* buf = (uint8_t*)heap_caps_malloc(OTA_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!buf) buf = (uint8_t*)malloc(OTA_BUF_SIZE);
   if (!buf) {
@@ -6770,8 +6761,7 @@ void loop() {
         return;
       }
 
-      // Mode 8: stock/crypto carousel — 3 s/symbol, sparkline chart, scaled price.
-      // Falls through to GIF code while waiting for first fetch or when disabled.
+      // Mode 8: stock/crypto carousel; falls through to GIF while waiting for first fetch.
       if (screensaverMode == 8 && tickerEnabled) {
         uint32_t now = millis();
         if (tickerPhaseStart == 0) { tickerPhaseStart = 1; tickerTrigger(); }
@@ -6816,8 +6806,7 @@ void loop() {
       }
 
 #ifdef ZEDMD_WIFI
-      // RSS rotation slot — scrolls headlines for screensaverDuration seconds, then
-      // chains to the ticker slot (if enabled) before returning to GIF cycling.
+      // RSS slot: scroll headlines for screensaverDuration seconds, then chain to ticker slot.
       if (rssSlotActive) {
         uint32_t now = millis();
         const char* hl = rssGetHeadlines();
@@ -6846,7 +6835,7 @@ void loop() {
           return;
         }
       }
-      // Ticker rotation slot — shows stock/crypto carousel for screensaverDuration seconds.
+      // Ticker slot: stock/crypto carousel for screensaverDuration seconds.
       if (tickerEnabled && tickerSlotActive) {
         uint32_t now = millis();
         if (tickerCount == 0 || now >= tickerSlotEnd) {
