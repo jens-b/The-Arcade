@@ -68,7 +68,23 @@ https://github.com/jens-b/The-Arcade/raw/main/docs/images/ZeDMD_WiFi_128x32_demo
 
 ## 🆕 What's new in this release
 
-### v1.8.0 *(this release)*
+### v1.9.0 *(this release)*
+
+#### RSS News Ticker (Mode 7)
+A new screensaver mode fetches headlines from any RSS 2.0 feed and scrolls them across the display. The feed URL is configurable in the web UI — presets for Tagesschau, BBC and others are built in, or enter any custom feed URL. Headlines refresh every 15 minutes. The ticker also appears as a slot in the GIF screensaver rotation (modes 0/2/4) and in the clock+weather rotation (modes 1/3).
+
+#### Stock / Crypto / Index Ticker (Mode 8)
+A new screensaver mode fetches live prices from Yahoo Finance (no API key required) and displays them as a carousel — one symbol at a time, cycling every few seconds. Supports stocks (`AAPL`, `SAP.DE`), crypto (`BTC-EUR`, `ETH-EUR`) and indices (`^DAX`, `^GSPC`). Up to 10 symbols, configurable in the web UI. Price and percentage change shown in green (positive) or red (negative). A mini sparkline shows the intraday trend. Refresh interval configurable (15 / 30 / 60 min). The ticker carousel also integrates into the GIF and clock modes — a symbol is shown between GIFs or at regular intervals.
+
+#### WKN and ISIN support
+German securities can now be entered as WKN (6-character alphanumeric, e.g. `DBX1ME`) or ISIN (12-character, e.g. `DE000DBX1ME3`) instead of ticker symbol. The firmware resolves the identifier to the correct Yahoo Finance symbol automatically on first fetch and caches the result.
+
+#### Brownout protection
+If the display resets due to a low-power event (e.g. a power bank running out), it now shows "Low power — sleeping 60s" and enters deep sleep for 60 seconds instead of immediately rebooting. This breaks the rapid reboot–draw–reboot cycle that drains a marginal power supply completely.
+
+---
+
+### v1.8.0
 
 #### Clock digit drop animation
 When a minute changes, each affected digit now animates: the old digit slides out downward while the new one drops in from above. Five frames at 40 ms each give a smooth 200 ms transition without impacting the normal display refresh rate.
@@ -460,6 +476,10 @@ This fork is **WiFi-only** and targets the **ESP32-S3-N16R8** with a **128×32 L
 - **Display Timer** — schedule daily on/off times for the LED matrix (e.g. off at 23:00, on at 07:00); "Display off / Display on" button for instant manual control
 - **Tabbed web UI** — main page organised into Screensaver / Display / Radio tabs; SD card & admin always visible
 - **Stereo Audio** *(experimental)* — two MAX98357A modules for true stereo output; channel selection via SD-pin resistor strapping (5V only, values verified); Stereo/Mono toggle in the web UI
+- **RSS News Ticker (Mode 7)** — fetches headlines from any RSS 2.0 feed and scrolls them across the display; feed URL configurable in the web UI (presets included); headlines refresh every 15 min; also shown as a carousel slot in GIF screensaver (modes 0/2/4) and clock+weather modes (1/3)
+- **Stock / Crypto / Index Ticker (Mode 8)** — live prices from Yahoo Finance (no API key required); supports stocks (`AAPL`, `SAP.DE`), crypto (`BTC-EUR`), and indices (`^DAX`, `^GSPC`); up to 10 symbols; price and percentage change in green/red; mini sparkline for intraday trend; refresh interval 15/30/60 min; carousel integrates into GIF and clock modes
+- **WKN and ISIN support** — German securities can be entered as WKN (6-char alphanumeric, e.g. `DBX1ME`) or ISIN (12-char, e.g. `DE000DBX1ME3`); automatically resolved to Yahoo Finance symbol and cached
+- **Brownout protection** — low-power reset shows "Low power — sleeping 60s" and deep-sleeps for 60 seconds instead of looping; prevents power drain with marginal supplies (e.g. power banks)
 
 ---
 

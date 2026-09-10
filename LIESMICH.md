@@ -70,7 +70,23 @@ https://github.com/jens-b/The-Arcade/raw/main/docs/images/ZeDMD_WiFi_128x32_demo
 
 ## 🆕 Neu in dieser Version
 
-### v1.8.0 *(diese Version)*
+### v1.9.0 *(diese Version)*
+
+#### RSS-News-Ticker (Modus 7)
+Ein neuer Screensaver-Modus ruft Schlagzeilen aus einem beliebigen RSS-2.0-Feed ab und scrollt sie über das Display. Die Feed-URL ist im Web-UI konfigurierbar — Voreinstellungen für Tagesschau, BBC u. a. sind eingebaut, oder eigene URL eingeben. Schlagzeilen werden alle 15 Minuten aktualisiert. Der Ticker erscheint außerdem als Slot in der GIF-Screensaver-Rotation (Modi 0/2/4) und in der Uhr+Wetter-Rotation (Modi 1/3).
+
+#### Aktien-/Krypto-/Index-Ticker (Modus 8)
+Ein neuer Screensaver-Modus ruft Live-Kurse von Yahoo Finance ab (kein API-Key erforderlich) und zeigt sie als Karussell — ein Symbol nach dem anderen, im Sekundentakt. Unterstützt Aktien (`AAPL`, `SAP.DE`), Krypto (`BTC-EUR`, `ETH-EUR`) und Indizes (`^DAX`, `^GSPC`). Bis zu 10 Symbole, konfigurierbar im Web-UI. Kurs und prozentuale Änderung in Grün (positiv) oder Rot (negativ). Mini-Sparkline für den Tagesverlauf. Aktualisierungsintervall 15/30/60 min wählbar. Das Ticker-Karussell integriert sich auch in GIF- und Uhrmodi — ein Symbol erscheint zwischen GIFs oder in regelmäßigen Abständen.
+
+#### WKN- und ISIN-Unterstützung
+Deutsche Wertpapiere können jetzt als WKN (6-stellig alphanumerisch, z. B. `DBX1ME`) oder ISIN (12-stellig, z. B. `DE000DBX1ME3`) statt als Ticker-Symbol eingegeben werden. Die Firmware löst die Kennung beim ersten Abruf automatisch zum korrekten Yahoo-Finance-Symbol auf und cached das Ergebnis.
+
+#### Unterspannungsschutz (Brownout)
+Wenn das Display durch ein Niederspannungsereignis resettet (z. B. Powerbank-Ladeende), zeigt es jetzt „Low power — sleeping 60s" und geht für 60 Sekunden in den Tiefschlaf, statt sofort neu zu starten. Das unterbricht die schnelle Neustart-Endlosschleife, die eine grenzwertige Stromversorgung vollständig entlädt.
+
+---
+
+### v1.8.0
 
 #### Uhrzifferanimation — Drop-Effekt
 Wenn sich eine Minute ändert, animiert jede betroffene Ziffer: Die alte Ziffer gleitet nach unten raus, die neue fällt von oben ein. Fünf Frames à 40 ms ergeben einen flüssigen 200-ms-Übergang.
@@ -461,6 +477,10 @@ Dieser Fork ist **nur WiFi** und zielt auf den **ESP32-S3-N16R8** mit einer **12
 - **Display-Timer** — tägliche Ein-/Ausschaltzeiten für das LED-Display; „Display off / Display on"-Button für sofortiges manuelles Aus-/Einschalten
 - **Tabs im Webinterface** — Hauptseite in Screensaver / Display / Radio gegliedert; SD-Info und Admin immer sichtbar
 - **Stereo-Audio** *(experimentell)* — zwei MAX98357A-Module für echten Stereo-Ausgang; Kanalwahl per SD-Pin-Widerstandsbrücke (nur 5V, Werte verifiziert); Stereo/Mono-Umschalter in der Web-UI
+- **RSS-News-Ticker (Modus 7)** — ruft Schlagzeilen aus beliebigen RSS-2.0-Feeds ab und scrollt sie über das Display; Feed-URL im Web-UI konfigurierbar (Voreinstellungen inklusive); Aktualisierung alle 15 min; erscheint als Karussell-Slot in GIF-Screensaver (Modi 0/2/4) und Uhr+Wetter (Modi 1/3)
+- **Aktien-/Krypto-/Index-Ticker (Modus 8)** — Live-Kurse von Yahoo Finance (kein API-Key); Aktien (`AAPL`, `SAP.DE`), Krypto (`BTC-EUR`), Indizes (`^DAX`, `^GSPC`); bis zu 10 Symbole; Kurs und prozentuale Änderung in Grün/Rot; Mini-Sparkline für Tagesverlauf; Aktualisierungsintervall 15/30/60 min; integriert sich in GIF- und Uhrmodi
+- **WKN- und ISIN-Unterstützung** — deutsche Wertpapiere als WKN (6-stellig alphanumerisch, z. B. `DBX1ME`) oder ISIN (12-stellig, z. B. `DE000DBX1ME3`) eingeben; wird automatisch zum Yahoo-Finance-Symbol aufgelöst und gecacht
+- **Unterspannungsschutz (Brownout)** — Niederspannungs-Reset zeigt „Low power — sleeping 60s" und geht 60 s in den Tiefschlaf statt neu zu starten; verhindert Entladungsschleifen bei grenzwertigen Netzteilen (z. B. Powerbank)
 
 ---
 
